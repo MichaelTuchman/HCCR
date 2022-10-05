@@ -129,9 +129,10 @@ model_factors=function(Table,MODEL_YEAR=2022) {
     filter(!is.na(Model)) %>% # remove blank rows 
     pivot_longer(cols=ends_with('Level'),names_to = 'Metal',values_to = 'coeff') %>%
     mutate(coeff=round(as.numeric(coeff),4)) %>%
-    mutate(Metal=str_trim(str_remove_all(Metal,'Level')),year=MODEL_YEAR)
+    mutate(Metal=str_trim(str_remove_all(Metal,'Level')),year=as.integer(MODEL_YEAR))
 }
 
 MFac = model_factors(9)
 names(MFac)[2]='Variable'
+names(MFac)[3]='isUsed'
 
