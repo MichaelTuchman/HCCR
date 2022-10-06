@@ -75,8 +75,7 @@ Adult=extra_vars('Table 6')
 Child=extra_vars('Table 7')
 Infant=extra_vars('Table 8')
 
-All_Ages=rbind(Adult,Child,Infant)
-All_Ages = fill_in_blank_rows(All_Ages)
+AllAges=rbind(Adult,Child,Infant) %>% fill_in_blank_rows
 rm(list=c('Adult','Child','Infant')) # now redundant
 
 
@@ -87,7 +86,7 @@ cc.table.icd10 =
 
 dash=function(str) str_replace_all(str,'\\.','_')
 
-cc.valid.2022=read_excel(fn,sheet='Table 3', skip=4, 
+ccValid2022=read_excel(fn,sheet='Table 3', skip=4, 
                          col_names=c('obs','icd10','icd10.label','valid.2021','valid.2022','age.cond','sex.cond','age.split','sex.split','cc.1','cc.2','cc.3','comment'),
                          col_types=rep('text',13)) %>%
   mutate(across(starts_with('cc'),dash)) %>% 
@@ -100,20 +99,36 @@ cc.valid.2022=read_excel(fn,sheet='Table 3', skip=4,
 ## set_to_zero table
 # which hcc get set to zero if you have more serious condition
 
-settozero=read_excel(fn,skip=3,
-                     sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>%
+# split out commas, trim new variables, then pivot long
+# result wil be a table with HCC | set_zero as columns
+
+SetToZeroRAW=read_excel(fn,skip=3,
+                     sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>% data.table
+
+SetToZero=SetToZeroRAW %>%
   select(-Obs) %>%
   separate(SetZero,sep=',',into=paste('X',1:8,sep='')) %>%
-  filter(!is.na(X8)) %>% mutate(across(.fns=~(str_trim(.x)))) %>%
-  pivot_longer(starts_with('X')) %>% mutate(label=NULL) %>% rename(set_zero=value)
+  mutate(across(.fns=~(str_trim(.x)))) %>%
+  pivot_longer(starts_with('X')) %>% mutate(label=NULL) %>%
+  rename(set_zero=value) %>% filter(!is.na(set_zero)) %>% mutate(name=NULL)
 
 
+SetToZero = SetToZero %>% data.table
+SetToZero %>% setkey(HCC)
 
 
 ## age sex bands and definitions
 
 AgeSexBands = read_excel(fn,sheet='Table 5',skip=2,col_types = rep('text',5)) %>% 
   filter(!is.na(Model)) # remove blank rows
+
+agest_stmt <- function(variable) {
+  as="([MF])AGE_LAST_(\\d\\d)_(\\d\\d)"
+  str_detect(variable,as)
+}
+
+
+
 
 ## model_factors table
 
@@ -130,9 +145,12 @@ model_factors=function(Table,MODEL_YEAR=2022) {
     pivot_longer(cols=ends_with('Level'),names_to = 'Metal',values_to = 'coeff') %>%
     mutate(coeff=round(as.numeric(coeff),4)) %>%
     mutate(Metal=str_trim(str_remove_all(Metal,'Level')),year=as.integer(MODEL_YEAR))
+  
+  names(U)=c('Model','Variable','isUsed','Metal','Coeff','Year')
+  return(U)
 }
 
-MFac = model_factors(9)
-names(MFac)[2]='Variable'
-names(MFac)[3]='isUsed'
+ModelFactors = model_factors(9)
+
+
 
