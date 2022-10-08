@@ -102,10 +102,15 @@ ccValid2022=read_excel(fn,sheet='Table 3', skip=4,
 # split out commas, trim new variables, then pivot long
 # result wil be a table with HCC | set_zero as columns
 
+<<<<<<< HEAD
 SetToZeroRAW=read_excel(fn,skip=3,
                      sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>% data.table
 
 SetToZero=SetToZeroRAW %>%
+=======
+SetToZero=read_excel(fn,skip=3,
+                     sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>%
+>>>>>>> 2a22f786478d84a495f26d50ccbfdd9780b1fe2a
   select(-Obs) %>%
   separate(SetZero,sep=',',into=paste('X',1:8,sep='')) %>%
   mutate(across(.fns=~(str_trim(.x)))) %>%
