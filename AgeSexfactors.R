@@ -139,5 +139,6 @@ DM$Metal=sample(Metals,nrow(DM),replace=TRUE,prob = c(5,4,3,2,.5))
 
 DM2=merge(DM,ELIG[,.(Variable,EC=Coeff,Metal)],by.x=c('ME','Metal'),by.y=c('Variable','Metal'))
 
+DM3 = merge(DM2,ModelFactors,by=c('Variable','Metal'))[,.(pat_id,pat_gender,pat_age,Model,Coeff,EC,ASERisk=Coeff+EC)]
  
 

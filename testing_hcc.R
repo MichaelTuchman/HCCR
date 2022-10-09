@@ -39,6 +39,12 @@ D3[,pat_age := round(as.numeric((mdy('05-31-2022') -ymd(D3$pat_birth_dt)) ) / 36
 
 ## assign HCC codes,but  will be invalid because of age sex split not yet being checked
 
+
+#### 
+#### Assign HCC to each diagnosis
+####
+
+
 AHCC = merge(D3,HCC2,by='ICD10')[,.(pat_id,pat_age,pat_gender,age.cond,sex.cond,age.split,sex.split,CC)][order(pat_id)]
 
 # when we have a compound age condition such as 65<=age<=100, split it into two conditions, since R cannot handle this
@@ -68,5 +74,40 @@ AHCC[str_detect(age.split,'age < (.*)'),`:=`(lo=-Inf,
 
 AHCC[str_detect(age.split,'age >= (.*)'),`:=`(lo=as.numeric(str_match(age.split,'age >= (.*)')[,2],
                                             hi=+Inf))]
+AHCC[,age.fit:=(pat_age<hi) & (pat_age>=lo)]
 
-AHCC[,age_fit:=(pat_age>=lo) & (pat_age<hi)]
+## need to fix
+AHCC[,`:=`(lo.2=-Inf,hi.2=+Inf)]
+
+AHCC[str_detect(age.cond,'(.*)<=age<=(.*)'),`:=`(lo.2=as.numeric(str_match(age.cond,'(.*)<=age<=(.*)')[,2]),
+                                                  hi.2=as.numeric(str_match(age.cond,'(.*)<=age<=(.*)')[,3]))]
+
+AHCC[str_detect(age.cond,'age < (.*)'),`:=`(lo.2=-Inf,
+                                             hi.2=as.numeric(str_match(age.cond,'age < (.*)')[,2]))]
+
+AHCC[str_detect(age.cond,'age >= (.*)'),`:=`(lo.2=as.numeric(str_match(age.cond,'age >= (.*)')[,2],
+                                                            hi=+Inf))]
+
+
+
+AHCC[,age_fit.2:=(pat_age>=lo.2) & (pat_age<hi.2)]
+
+## handle sex issues
+
+AHCC[,sex.split:=str_sub(toupper(sex.split),1,1)]
+
+g=function(S,y) (is.na(S)|S==y) # needs some lazy eval to be even more efficient
+
+## remove items where sex condition does not meet patient gender
+## but count them first for fraud detection
+require(knitr)
+AHCC[,.N,by=.(g(sex.cond,pat_gender))] %>% kable
+AHCC=AHCC[g(sex.cond,pat_gender)]
+AHCC=AHCC[g(sex.split,pat_gender)]
+AHCC=AHCC[age.fit==TRUE & age_fit.2==TRUE,.(pat_id,pat_gender,HCC=CC)]
+AHCC=distinct(AHCC)
+setkey(AHCC,HCC)
+## we have now remoted all HCC assignments incompatible with age or gender
+
+## ---------------------------------------------------------------------
+## reduce assignments taking only the first 
