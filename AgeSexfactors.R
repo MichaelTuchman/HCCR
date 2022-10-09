@@ -1,5 +1,9 @@
 ## AgeSexFactors.R
 ## Add risk scores for no HCCs, age and sex
+
+DM=data.table(readRDS('DM.RData'))
+DM[,pat_age:=round(age_rpt)]
+
 enclose_braces=function(str) paste("{",str,"}")
 
 
@@ -113,4 +117,27 @@ e4=eval(DT_program(DM))
 
 ## current DM has some duplicate keys. it does not matter for this testing.
 
+## final result should really be a function, not a table
+
+## simulate eligibility
+ev=runif(nrow(DM)) %>% cut(c(.05,.20,.21,.22,.23,.24,.25,.26,.27,.28,.29,1,+Inf))
+levels(ev)=paste('ED_',1:12,sep='')
+ev[is.na(ev)]='ED_12'
+
+DM$ME=ev
+
+# Simulate Metal Level.  Decided on one level per person rather
+# than computing all 5 for each person, which was causing me issues
+# with cartesian joins
+
+Metals=ModelFactors$Metal%>%unique
+DM$Metal=sample(Metals,nrow(DM),replace=TRUE,prob = c(5,4,3,2,.5))
+
+# get model name (child, infant, adult)
+
+# merge partial eligibility risk scores in and store them in variable 'EC'
+
+DM2=merge(DM,ELIG[,.(Variable,EC=Coeff,Metal)],by.x=c('ME','Metal'),by.y=c('Variable','Metal'))
+
+ 
 

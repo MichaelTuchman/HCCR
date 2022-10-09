@@ -1,5 +1,7 @@
 # get diagnosis sample working
+
 D2=readRDS('D2.RData')
+
 compact_diags=function(diags){
   diags %>% pivot_longer(cols=starts_with('diag'),names_to='drop',values_to='ICD10') %>% 
   filter(!is.na(ICD10)) %>% select(-drop) %>% distinct
@@ -7,11 +9,9 @@ compact_diags=function(diags){
 
 D3=compact_diags(D2) %>% data.table
 
-
-
-
 # set to zero function
 # have to set key of patient diags and set_to_zero to HCC
+
 
 # here' show this code works;
 # create pairs of hcc by patient merge(pt_diags_pt_diags)
@@ -35,5 +35,38 @@ remove_subordinate_hcc = function(pt_diags,set_to_zero_tbl) {
 # iterate over the rows of J and execute 28 or so data table statements
 # on the main demographic table
 
+D3[,pat_age := round(as.numeric((mdy('05-31-2022') -ymd(D3$pat_birth_dt)) ) / 365.2453)]
+
+## assign HCC codes,but  will be invalid because of age sex split not yet being checked
+
+AHCC = merge(D3,HCC2,by='ICD10')[,.(pat_id,pat_age,pat_gender,age.cond,sex.cond,age.split,sex.split,CC)][order(pat_id)]
+
+# when we have a compound age condition such as 65<=age<=100, split it into two conditions, since R cannot handle this
+
+AHCC[str_detect(age.split,'(.*)<=age<=(.*)'),`:=`(lo=str_match(age.split,'(.*)<=age<=(.*)')[,2],
+                                                  hi=str_match(age.split,'(.*)<=age<=(.*)')[,4])]
 
 
+AHCC[is.na(age.split.fixed),age.split.fixed:=expr(TRUE)]
+JJ=AHCC$age.cond.fixed %>% unique
+
+# only problem is that this is not vectorizable
+# i would really need to create a vector of functions
+
+str_2_agef = function(str) {
+  tmp=function(age) {}
+  body(tmp)=parse_expr(str)
+  return(tmp)
+}
+
+AHCC[,`:=`(lo=-Inf,hi=+Inf)]
+AHCC[str_detect(age.split,'(.*)<=age<=(.*)'),`:=`(lo=as.numeric(str_match(age.split,'(.*)<=age<=(.*)')[,2]),
+                                                  hi=as.numeric(str_match(age.split,'(.*)<=age<=(.*)')[,3]))]
+
+AHCC[str_detect(age.split,'age < (.*)'),`:=`(lo=-Inf,
+                                            hi=as.numeric(str_match(age.split,'age < (.*)')[,2]))]
+
+AHCC[str_detect(age.split,'age >= (.*)'),`:=`(lo=as.numeric(str_match(age.split,'age >= (.*)')[,2],
+                                            hi=+Inf))]
+
+AHCC[,age_fit:=(pat_age>=lo) & (pat_age<hi)]

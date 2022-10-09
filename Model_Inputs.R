@@ -81,41 +81,45 @@ rm(list=c('Adult','Child','Infant')) # now redundant
 
 ## map diagnosis to HCC
 
-cc.table.icd10 = 
 ## in order to replace periods with underlines in HCC codes
 
 dash=function(str) str_replace_all(str,'\\.','_')
 
-ccValid2022=read_excel(fn,sheet='Table 3', skip=4, 
-                         col_names=c('obs','icd10','icd10.label','valid.2021','valid.2022','age.cond','sex.cond','age.split','sex.split','cc.1','cc.2','cc.3','comment'),
-                         col_types=rep('text',13)) %>%
-  mutate(across(starts_with('cc'),dash)) %>% 
-  pivot_longer(starts_with('cc'),names_to=NULL) %>% 
-  filter(!is.na(value)) %>%
-  filter(valid.2022=='Y') %>%
-  select(-valid.2021,-obs)
+HCC=read_excel(fn,sheet='Table 3', skip=4, 
+                         col_names=c('obs','ICD10','icd10.label','valid.2021','valid.2022','age.cond','sex.cond','age.split','sex.split','cc.1','cc.2','cc.3','comment'),
+                         col_types=c(rep('text',9),rep('numeric',3),'text'))
 
+
+HCC2=HCC%>%
+# mutate(across(starts_with('cc'),dash)) %>% 
+  pivot_longer(starts_with('cc'),names_to=NULL,values_to = 'CC') %>% 
+  filter(!is.na(CC)) %>%
+  filter(valid.2022=='Y') %>%
+  select(-valid.2021,-obs) %>% mutate(CC=dash(as.character(CC))) %>% data.table
+
+# simplify Sex conditions
+
+HCC2[!is.na(sex.cond),`:=`(sex.cond=toupper(str_sub(sex.cond,1,1)))]
+HCC2[!is.na(sex.split),`:=`(sex.split=toupper(str_sub(sex.cond,1,1)))]
+
+# convert dots to underlines
+
+# ------------- HCC set to zero condition table -------------------
 
 ## set_to_zero table
 # which hcc get set to zero if you have more serious condition
-
 # split out commas, trim new variables, then pivot long
 # result wil be a table with HCC | set_zero as columns
 
-<<<<<<< HEAD
 SetToZeroRAW=read_excel(fn,skip=3,
                      sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>% data.table
 
 SetToZero=SetToZeroRAW %>%
-=======
-SetToZero=read_excel(fn,skip=3,
-                     sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>%
->>>>>>> 2a22f786478d84a495f26d50ccbfdd9780b1fe2a
-  select(-Obs) %>%
-  separate(SetZero,sep=',',into=paste('X',1:8,sep='')) %>%
-  mutate(across(.fns=~(str_trim(.x)))) %>%
-  pivot_longer(starts_with('X')) %>% mutate(label=NULL) %>%
-  rename(set_zero=value) %>% filter(!is.na(set_zero)) %>% mutate(name=NULL)
+       select(-Obs) %>%
+       separate(SetZero,sep=',',into=paste('X',1:8,sep='')) %>%
+       mutate(across(.fns=~(str_trim(.x)))) %>%
+       pivot_longer(starts_with('X')) %>% mutate(label=NULL) %>%
+       rename(set_zero=value) %>% filter(!is.na(set_zero)) %>% mutate(name=NULL)
 
 
 SetToZero = SetToZero %>% data.table
@@ -155,7 +159,7 @@ model_factors=function(Table,MODEL_YEAR=2022) {
   return(U)
 }
 
-ModelFactors = model_factors(9)
+ModelFactors = data.table(model_factors(9))
 
-
+ELIG=ModelFactors[Variable %like% 'ED_']
 
