@@ -133,5 +133,4 @@ model_factors=function(Table,MODEL_YEAR=2022) {
 }
 
 MFac = model_factors(9)
-names(MFac)[2]='Variable'
 
