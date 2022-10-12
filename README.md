@@ -50,12 +50,12 @@ The output is a program in a target language, which is capable of scoring data. 
 
 The program ingests a spreadsheet, and outputs a file of R code (and SQL in a future version). In order to run the code that HCCR output against your own data, you will need to have data sets that meet the requirements below:
 
-### Demographics data set. 
+### Demographics data set.
 
 Must have the following format. The variables must be named exactly as below, including case. While this is an annoying restriction, I plan to remove it at some point before release. On the principle that you should use a data set that contains only the information you need (and no more), I advise against including other geographical data, since that could potentially identify individual patients.
 
 | Variable      | Description                                                                                                                                                                                    |
-|--------------|----------------------------------------------------------|
+|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `pat_id`      | **Completely anonymized patient ID**                                                                                                                                                           |
 | `pat_age`     | Must be an integer. This is done, again, For greater anonymity, round to nearest year and do not include birthdate.                                                                            |
 | `months_elig` | Number of months of eligibility prior to end of reporting period. Cap this at 12. Eligibility files tend to be huge, so it's advisable to aggregate this on your own before starting the code. |
