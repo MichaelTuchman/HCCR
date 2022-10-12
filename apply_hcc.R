@@ -47,31 +47,14 @@ standard_varname=function(CCNWhole,CCNPart) {
 # this helps create a sort order that might make this easier to manage
 
 # turn dashes back to decimals for sorting
-HCCvars=HCC2[,.N,by=.(CC,CCN=as.numeric(str_replace(CC,'_','.')))]
+HCCvars=HCC2[,.N,by=.(CC,CCN=as.numeric(str_replace(CC,'_','.')))][order(CCN),.(HCC=ss(CC),sortorder=1:.N)]
 
-# split the HCC code up into whole and decimal parts
-HCCvars[,`:=`(CCNWhole=floor(CCN))]
-HCCvars=HCCvars[,`:=`(CCNPart=CCN-CCNWhole)]
-HCCvars[,`:=`(CCNPart2=as.integer(round(10*CCNPart)))]
-
-HCCvars=HCCvars[order(CCNWhole,CCNPart2)]
-HCCvars[,HCC:=CC]
-HCCvars[,CC:=NULL]
-# order as though cc were numeric and then assign a sort order to them.  
-
-HCCvars[,sortorder:=1:.N]
-
-HCC3=HCCvars[order(CCN),paste('HCC',HCC,sep='')]
-HCCvars[,standardized_var:=standard_varname(CCNWhole,CCNPart2)]
-
-#### 
-#### Assign HCC to each diagnosis
-#### and make sure age ranges match expectations
-####
-
-# merge codes, select fields, and order result by patient iD
-
+###
+### Assign Diagnosis codes to HCC codes
+### 
 AHCC = merge(D3,HCC2,by='ICD10')[,.(pat_id,pat_age,pat_gender,age.cond,sex.cond,age.split,sex.split,CC)][order(pat_id)]
+AHCC[,HCC:=ss(CC)]
+AHCC[,CC:=NULL]
 
 # translate condition into a high and lo age that the patient age must fit to
 
@@ -151,9 +134,8 @@ AHCC=AHCC[age.fit==TRUE & age_fit.2==TRUE,.(pat_id,pat_gender,HCC=CC,pat_age)]
 AHCC=distinct(AHCC)
 setkey(AHCC,HCC)
 
-# standardize variable names
-
-AHCCS=merge(AHCC,HCCvars,by='HCC')[,.(pat_id,pat_gender,pat_age,standardized_var)]
+# return a data table to create a patient who has all the codes 
+add_dummy=function(X,codes){}
 
 # standardize variable names in set to zero tables
 # 
@@ -170,33 +152,11 @@ AHCCS=merge(AHCC,HCCvars,by='HCC')[,.(pat_id,pat_gender,pat_age,standardized_var
 # dashed_hcc[,.(HCCStd=standardized_var,ZeroStd)]
 
 # came out null
+# move code to input table processing
 
-step2_dashed_hcc[,paste('X',1:8,sep=''):=tstrsplit(SetZero,',')]
-P=step2_dashed_hcc[!is.na(X1)]
-
-# simple standardize (ss)
-# object is to get a list of assignments to set to zero based on 
-# the variable naming convention used in ModelFactors (how will this change for medicare?)
-
-
-ss = function(hcc_code) {
-  x=tstrsplit(hcc_code,'_',fill='')
-  x0='HHS_HCC'
-  x1=str_pad(str_squish(x[[1]]),3,'left','0')
-  if (length(x)>1)
-    x2=ifelse(x[[2]]=='','',paste('_',x[[2]],sep=''))
-  else
-    x2=''
-  res=paste(x0,x1,x2,sep='')
-  res[res=='HHS_HCCNA']=NA # inefficient. think this through!
-  return(res)
+widen = function (X) {
+  X %>% dcast.data.table(pat_id+pat_age+pat_gender~ss(HCC),fill=0,fun.aggregate = length)
 }
-
-P[,paste('Y',1:8,sep=''):=lapply(.SD,ss),.SDcols=paste0('X',1:8)]
-P[,paste('X',1:8,sep=''):=rep(NULL,8)]
-P[,SetZero:=NULL]
-
-# create assignments
 
 
 

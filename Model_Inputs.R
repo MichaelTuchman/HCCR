@@ -138,7 +138,8 @@ SetToZero=SetToZeroRAW %>%
 SetToZero = SetToZero %>% data.table
 SetToZero %>% setkey(HCC)
 
-SetToZero[,lapply(ss,.SD)]
+SetToZero=SetToZero[,lapply(.SD,ss)][order(HCC)]
+# SetToZero[,Z:=1:nrow(.SD),by=HCC] 
 
 # simple standardize (ss)
 # object is to get a list of assignments to set to zero based on 
@@ -161,8 +162,6 @@ ss = function(hcc_code) {
 
 # create assignments
 
-SetToZero=SetToZero[,lapply(.SD,ss)][order(HCC)]
-SetToZero[,Z:=1:nrow(.SD),by=HCC]
 
 ## age sex bands and definitions
 
@@ -200,4 +199,24 @@ model_factors=function(Table,MODEL_YEAR=2022) {
 ModelFactors = data.table(model_factors(9))
 
 ELIG=ModelFactors[Variable %like% 'ED_']
+
+## can I make this into a function? 
+STZCode=SetToZero[,.(set_zero=paste(set_zero,':=0'),HCC=paste(HCC,'==1'))]
+STZCode2=STZCode[1:3,.(assignment=paste("X[",HCC,",",set_zero,"]"))]
+
+# higher level function setter
+# takes a data table of assignment statements as input
+# and returns a function that will execute those
+# statements on any data table (assuming it has the required fields)
+
+setterhl = function(code) {
+  base = function(X) {}
+  # must condense to a single expression
+  block = paste("{",paste(code$assignment,collapse=';'),";return(X)}")
+  body(base)=parse_expr(block)
+  return(base)
+}
+
+# function to perform the pivot 
+
 
