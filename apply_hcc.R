@@ -91,7 +91,26 @@ AHCC[str_detect(age.split,'age < (.*)'),`:=`(lo=-Inf,
 AHCC[str_detect(age.split,'age >= (.*)'),`:=`(lo=as.numeric(str_match(age.split,'age >= (.*)')[,2],
                                             hi=+Inf))]
 
+
+
+# really should be a loop
+infant.age.split=function(str) {
+  j=str_match('age = 2','age *= (\\d)')[,2]
+  as.integer(j)
+}
+
+AHCC[str_detect(age.split,'age = (\\d)'),`:=`(j=infant.age.split(age.split))]
+AHCC[str_detect(age.split,'age = (\\d)'),`:=`(hi=j,lo=j)]
+AHCC[,j:=NULL]
+
 AHCC[,age.fit:=(pat_age<hi) & (pat_age>=lo)]
+
+# need to do this with age cond and gender too
+
+
+
+# replication of pairlists is defunct
+
 
 ## need to fix
 ## create age bands for age conditions
@@ -138,24 +157,24 @@ AHCCS=merge(AHCC,HCCvars,by='HCC')[,.(pat_id,pat_gender,pat_age,standardized_var
 
 # standardize variable names in set to zero tables
 # 
-dashed_hcc=SetToZeroRAW[,c('CCNWhole','CCNPart'):=tstrsplit(HCC,'_')]
-dashed_hcc[,CCNPart:=as.integer(CCNPart)]
-dashed_hcc[,CCNWhole:=as.integer(CCNWhole)]
-dashed_hcc[,HCCStd:=standard_varname(CCNWhole,CCNPart)]
-step2_dashed_hcc=dashed_hcc[,.(HCCStd,SetZero)]
-
-dashed_hcc[,c('ZeroW','ZeroP'):=tstrsplit(SetZero,'_')]
-dashed_hcc[,`:=`(ZeroW=as.integer(ZeroW),ZeroP=as.integer(ZeroP))]
-dashed_hcc[,`:=`(ZeroStd=standard_varname(ZeroW,ZeroP))]
-
-dashed_hcc[,.(HCCStd=standardized_var,ZeroStd)]
+# dashed_hcc=SetToZeroRAW[,c('CCNWhole','CCNPart'):=tstrsplit(HCC,'_')]
+# dashed_hcc[,CCNPart:=as.integer(CCNPart)]
+# dashed_hcc[,CCNWhole:=as.integer(CCNWhole)]
+# dashed_hcc[,HCCStd:=standard_varname(CCNWhole,CCNPart)]
+# step2_dashed_hcc=dashed_hcc[,.(HCCStd,SetZero)]
+# 
+# dashed_hcc[,c('ZeroW','ZeroP'):=tstrsplit(SetZero,'_')]
+# dashed_hcc[,`:=`(ZeroW=as.integer(ZeroW),ZeroP=as.integer(ZeroP))]
+# dashed_hcc[,`:=`(ZeroStd=standard_varname(ZeroW,ZeroP))]
+# 
+# dashed_hcc[,.(HCCStd=standardized_var,ZeroStd)]
 
 # came out null
 
 step2_dashed_hcc[,paste('X',1:8,sep=''):=tstrsplit(SetZero,',')]
 P=step2_dashed_hcc[!is.na(X1)]
 
-# simple standardize
+# simple standardize (ss)
 # object is to get a list of assignments to set to zero based on 
 # the variable naming convention used in ModelFactors (how will this change for medicare?)
 
@@ -196,30 +215,3 @@ chain_assign=function(z,pref='HCC') {
 dt_assign=function(CC,z,pref='HCC') {
   paste('X[',pref,CC,'==1,`:=`(',chain_assign(z,pref),')]',sep='')
 }
-
-S2Z=SetToZeroRAW[!is.na(SetZero),.(HCC,SetZero)]
-All_ZeroSet=dt_assign(S2Z$HCC,S2Z$SetZero)
-
-## build the zero setting function from here
-setter=function(X) {}
-W=paste('{',paste(All_ZeroSet,collapse=';'),'}')
-body(setter)=parse_expr(W)
-
-## this function will fail if it comes across an HCC code that is in the SetZero 
-## table (which is not based on claims data) that is not in our data set
-## or we can guarantee 
-
-## for S, only keep variables that are NOT in the list of AHCC2 so that
-## this rounds out the list of needed variables without creating ".x" and ".y"
-
-
-missing_assignments=setdiff(names(S),names(AHCC2)) %>% paste(.,'=0',collapse=',') %>%
-  paste('X[,`:=`(',.,')]')
-
-finish_assign=function(X) {}
-body(finish_assign) = parse_expr(missing_assignments)
-
-finish_assign(AHCC2)
-setter(AHCC2) # set some diag codes to zero for the hierarchical requirements
-
-## convert number to label
