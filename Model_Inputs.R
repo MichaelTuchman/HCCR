@@ -24,6 +24,24 @@ fn=fp(2022)
 ## hcc_group : Data structures to write code for computing the 
 ## grouping variables
 
+## set_to_zero table
+# which hcc get set to zero if you have more serious condition
+# split out commas, trim new variables, then pivot long
+# result wil be a table with HCC | set_zero as columns
+
+ss = function(hcc_code) {
+  x=tstrsplit(hcc_code,'_',fill='')
+  x0='HHS_HCC'
+  x1=str_pad(str_squish(x[[1]]),3,'left','0')
+  if (length(x)>1)
+    x2=ifelse(x[[2]]=='','',paste('_',x[[2]],sep=''))
+  else
+    x2=''
+  res=paste(x0,x1,x2,sep='')
+  res[res=='HHS_HCCNA']=NA # inefficient. think this through!
+  return(res)
+}
+
 ## HCC Grouping variables
 extra_vars=function(SheetNoC) {
   read_excel(fn,
@@ -101,28 +119,10 @@ HCC2=HCC%>%
 
 HCC2[!is.na(sex.cond),`:=`(sex.cond=toupper(str_sub(sex.cond,1,1)))]
 HCC2[!is.na(sex.split),`:=`(sex.split=toupper(str_sub(sex.cond,1,1)))]
-
+HCC2[,HCC:=ss(CC)]
 # convert dots to underlines
 
 # ------------- HCC set to zero condition table -------------------
-
-## set_to_zero table
-# which hcc get set to zero if you have more serious condition
-# split out commas, trim new variables, then pivot long
-# result wil be a table with HCC | set_zero as columns
-
-ss = function(hcc_code) {
-  x=tstrsplit(hcc_code,'_',fill='')
-  x0='HHS_HCC'
-  x1=str_pad(str_squish(x[[1]]),3,'left','0')
-  if (length(x)>1)
-    x2=ifelse(x[[2]]=='','',paste('_',x[[2]],sep=''))
-  else
-    x2=''
-  res=paste(x0,x1,x2,sep='')
-  res[res=='HHS_HCCNA']=NA # inefficient. think this through!
-  return(res)
-}
 
 SetToZeroRAW=read_excel(fn,skip=3,
                      sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>% data.table
@@ -144,21 +144,6 @@ SetToZero=SetToZero[,lapply(.SD,ss)][order(HCC)]
 # simple standardize (ss)
 # object is to get a list of assignments to set to zero based on 
 # the variable naming convention used in ModelFactors (how will this change for medicare?)
-
-
-
-ss = function(hcc_code) {
-  x=tstrsplit(hcc_code,'_',fill='')
-  x0='HHS_HCC'
-  x1=str_pad(str_squish(x[[1]]),3,'left','0')
-  if (length(x)>1)
-    x2=ifelse(x[[2]]=='','',paste('_',x[[2]],sep=''))
-  else
-    x2=''
-  res=paste(x0,x1,x2,sep='')
-  res[res=='HHS_HCCNA']=NA # inefficient. think this through!
-  return(res)
-}
 
 # create assignments
 
@@ -217,6 +202,5 @@ setterhl = function(code) {
   return(base)
 }
 
-# function to perform the pivot 
 
 
