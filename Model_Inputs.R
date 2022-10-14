@@ -15,6 +15,12 @@ require(readr)
 require(lubridate)
 
 # date  utility and helper functions
+
+
+count_na=function(v) sum(is.na(v))
+checkNA=function(DT) DT[,lapply(.SD,count_na)]
+
+
 fp=function(model.year) {
  file.path(sprintf('CY%d DIY tables 06.30.%d.xlsx',model.year,model.year))
 }

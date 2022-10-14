@@ -32,10 +32,14 @@ HCCvars=HCC2[,.N,by=.(CC,CCN=as.numeric(str_replace(CC,'_','.')))][order(CCN),.(
 ###
 ### We need to go back and remember where hcc2 is created
 ###
-assign_hcc=function(Diagnostic,HCC) {
-  AHCC = merge(D3,HCC2,by='ICD10')[,.(pat_id,pat_age,pat_gender,age.cond,sex.cond,age.split,sex.split,CC)][order(pat_id)]
-  AHCC[,HCC:=ss(CC)]
-  AHCC[,CC:=NULL]
+
+### needs to be redone in proper format
+
+assign_hcc=function(HCC) 
+  function(Diagnostic) {
+  AHCC = merge(Diagnostic,HCC,by='ICD10')[,.(pat_id,pat_age,pat_gender,age.cond,sex.cond,age.split,sex.split,HCC)][order(pat_id)]
+  # AHCC[,HCC:=ss(CC)]
+  # AHCC[,CC:=NULL]
 
 # translate condition into a high and lo age that the patient age must fit to
 
@@ -96,9 +100,13 @@ require(knitr)
   # AHCC=distinct(AHCC)
   setkey(AHCC,HCC)
   # AHCC[,HCC:=ss(HCC)]
+  
   AHCC = AHCC[,.(pat_id,pat_age,pat_gender,HCC)]
-  return(AHCC)
-}
+  
+  return(distinct(AHCC))
+  }
+
+
 
 widen = function (X,vars=sort(unique(HCC2$HCC))) {
   TRY2=data.table(pat_id=NA,pat_gender=NA,HCC=sort(unique(HCC2$HCC)))
@@ -107,8 +115,16 @@ widen = function (X,vars=sort(unique(HCC2$HCC))) {
   return(X)
 }
 
-AHCCW=assign_hcc(D3,HCC2) %>% widen ## M < -----
-
+widenfb = function(HCC) {
+  vars=sort(unique(HCC$HCC))
+  DUMMY = data.table(pat_id=NA,pat_gender=NA,HCC=sort(unique(HCC2$HCC)))
+  function(X) {
+    X=X %>% bind_rows(DUMMY) %>% dcast.data.table(pat_id+pat_age+pat_gender~HCC,fill=0,fun.aggregate = length)
+    X=X[!is.na(pat_id)]
+    return(X)
+  }
+                    
+}
 
 
 ## we have now removed all HCC assignments incompatible with age or gender
@@ -126,4 +142,8 @@ dt_assign=function(CC,z,pref='HCC') {
   paste('X[',pref,CC,'==1,`:=`(',chain_assign(z,pref),')]',sep='')
 }
 
-AHCC=assign_hcc(D3,HCC2)
+
+
+
+
+
