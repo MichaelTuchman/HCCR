@@ -19,18 +19,19 @@ STEP3[,ENROLDURATION:=12]
 STEP3[,`:=`(AGE_LAST=pat_age,
             AGE0_MALE=as.numeric(pat_age==0 & pat_gender=='M'),
             AGE1_MALE=as.numeric(pat_age==1 & pat_gender=='M'))]
+names0=c('why me?: ',names(STEP3))
+
+
+
 
 STEP4 = more_vars(STEP3)
   
-a=names(STEP3)
+a=names(STEP4)
 col_names=a[grep('pat_',a,invert=TRUE)]
+b=setdiff(a,names0)
 ## write a function that replaces all numeric NA with zero
 
-STEP3=STEP3[,lapply(.SD,replace_na,0),.SDcols=col_names]
+STEP4=STEP4[,lapply(.SD,replace_na,0),.SDcols=col_names]
+STEP4[,..b] %>% summary()
 
-STEP4=more_vars(STEP3)
-STEP3=STEP3[,.SD,.SDcols=col_names]
-
-count_na=function(v) sum(is.na(v))
-checkNA=function(DT) DT[,lapply(.SD,count_na)]
 

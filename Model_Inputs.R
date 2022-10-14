@@ -200,10 +200,10 @@ STZCode2=STZCode[1:3,.(assignment=paste("X[",HCC,",",set_zero,"]"))]
 # and returns a function that will execute those
 # statements on any data table (assuming it has the required fields)
 
-setterhl = function(code) {
+setterhl = function(codeDT) {
   base = function(X) {}
   # must condense to a single expression
-  block = paste("{",paste(code$assignment,collapse=';'),";return(X)}")
+  block = paste("{",paste(codeDT$assignment,collapse=';'),";return(X)}")
   body(base)=parse_expr(block)
   return(base)
 }
