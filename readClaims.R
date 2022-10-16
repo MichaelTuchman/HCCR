@@ -30,3 +30,8 @@ D3=compact_diags(D2) %>% data.table
 # where hcc in (select set_zero has hcc from pt_diags join set_to_zero_table on pt_diags.hcc=set_to_zero_table.hcc))
 
 D3[,pat_age := round(as.numeric((mdy('05-31-2022') -ymd(D3$pat_birth_dt)) ) / 365.2453)]
+
+# if we merge this with DM too early we risk scoring a lot of people with no claims
+# for no reason
+
+

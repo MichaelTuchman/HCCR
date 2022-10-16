@@ -108,18 +108,23 @@ require(knitr)
 
 
 
-widen = function (X,vars=sort(unique(HCC2$HCC))) {
-  TRY2=data.table(pat_id=NA,pat_gender=NA,HCC=sort(unique(HCC2$HCC)))
-  X=X %>% bind_rows(TRY2) %>% dcast.data.table(pat_id+pat_age+pat_gender~HCC,fill=0,fun.aggregate = length)
-  X=X[!is.na(pat_id)]
-  return(X)
-}
+# widen = function (X,vars=sort(unique(HCC2$HCC))) {
+#   TRY2=data.table(pat_id=NA,pat_gender=NA,HCC=sort(unique(HCC2$HCC)))
+#   X=X %>% bind_rows(TRY2) %>% dcast.data.table(pat_id+pat_age+pat_gender~HCC,fill=0,fun.aggregate = length)
+#   X=X[!is.na(pat_id)]
+#   return(X)
+# }
+
+## inputs which variables to use as ID vars, which are var vars
+## this does two important functions that ordinary pivoting does not
+## ensures all variables in the list will appear as columns
+## even if they don't have a row in the data
 
 widenfb = function(HCC) {
   vars=sort(unique(HCC$HCC))
   DUMMY = data.table(pat_id=NA,pat_gender=NA,HCC=sort(unique(HCC2$HCC)))
   function(X) {
-    X=X %>% bind_rows(DUMMY) %>% dcast.data.table(pat_id+pat_age+pat_gender~HCC,fill=0,fun.aggregate = length)
+    X=X %>% bind_rows(DUMMY) %>% dcast.data.table(pat_id+pat_age+pat_gender+AgeBAND+Model~HCC,fill=0,fun.aggregate = length)
     X=X[!is.na(pat_id)]
     return(X)
   }
@@ -127,20 +132,10 @@ widenfb = function(HCC) {
 }
 
 
-## we have now removed all HCC assignments incompatible with age or gender
-## ---------------------------------------------------------------------
-## reduce assignments taking only the first 
-## merge but without using cartesian products
+## when do I actually want to ingest my inputs?
+## X must have AgeBAND, pat_id, AGE_LAST, pat_gender, HCC,Model
+## columns as variables
 
-b2=function(csv) str_split(csv,',')
-chain_assign=function(z,pref='HCC') {
-  b=function(w,pref)  paste(pref,w,'=0',sep='')
-  lapply(str_split(z,','),function(x) paste(sapply(x,b,pref),collapse=',' )) %>% unlist
-}
-
-dt_assign=function(CC,z,pref='HCC') {
-  paste('X[',pref,CC,'==1,`:=`(',chain_assign(z,pref),')]',sep='')
-}
 
 
 

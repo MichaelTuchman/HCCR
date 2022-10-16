@@ -166,6 +166,25 @@ agest_stmt <- function(variable) {
 
 
 
+## 
+score_model = function(Model_factor_table,by='pat_id') {
+  ## scoring might fail quietly if variables are not defined
+  ## we could check for this
+  
+  ## we should also have one record per id per variable
+  ## we should check for this also
+  
+  ## model data needs to have a by var, in this case patient id
+  MFT=Model_factor_table
+  function(MD) {
+    ScoreByTerm=merge(MD,Model_factor_table,by='Variable')
+    scores=ScoreByTerm[,lapply(.SD,sum),by=by] # apply all models (one per column)
+    return(scores)
+  }
+  
+}
+
+
 
 ## model_factors table
 

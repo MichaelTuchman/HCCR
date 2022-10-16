@@ -50,4 +50,5 @@ AllAgesImportantOnly[,assignment:=str_squish(paste('X[',antecedent,
 #   return(base)
 # }
 
-more_vars=setterhl(AllAgesImportantOnly)
+more_vars=setterhl(AllAgesImportantOnly[!(Variable %like% '^ED')])
+enr_vars=setterhl(AllAgesImportantOnly[(Variable %like% '^ED_')])

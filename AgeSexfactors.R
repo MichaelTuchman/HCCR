@@ -89,8 +89,15 @@ AgeSexModel=setterhl(K)
 ## yellow flag:  We are not using the AGE_LAST variable
 
 
-Scored_DM=AgeSexModel(DM[,.(pat_id,pat_gender,pat_age=age_rpt)])
+Scored_DM=AgeSexModel(DM[,
+                         .(pat_id,
+                           pat_gender,
+                           pat_age=round(age_rpt))])
 
 ## Todo: Chain functions together
+## list functions to chain
+## adding additional years to the model
+## preprocessing of input tables, document
+## requirements for RxVars
 
-                     
+AgeSexBands=data.table(AgeSexBands)
