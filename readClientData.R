@@ -44,8 +44,10 @@ measures=copy(names(Diags)) %>% setdiff(c('pat_birth_dt','pat_id'))
 
 D3=Diags %>% melt.data.table('pat_id',measures,na.rm = TRUE,value.name = 'ICD10') %>% distinct
 
+####################################################################
+## age/sex data an partial year eligibility
+####################################################################
 
-## age/sex data
 DM = dbGetQuery(con,"  select distinct [deid_mbr_id] as pat_id,
                   [mbr_gender] as pat_gender,
 				  [mbr_birth_dt] as pat_birth_dt,
@@ -55,10 +57,30 @@ DM = dbGetQuery(con,"  select distinct [deid_mbr_id] as pat_id,
 ## only eligibility in current term
 
 PERIOD_START_DT='2021-06-01'
+PERIOD_END_DT='2022-05-31'
+
 ELIG0=E[V1<=PERIOD_START_DT,.(pat_id=deid_mbr_id,cov_start_dt=V1)]
 
 DM2=merge(ELIG0,DM,by='pat_id')
-DM2[,ENROLDURATION:=interval(cov_start_dt,PERIOD_END_DT) %/% months(1)]
+DM2[,pat_age:=age_rpt]
+
+DM2=bind_rows(DM2, DM[pat_birth_dt>=PERIOD_START_DT,.(pat_id,pat_gender,pat_birth_dt,pat_age=age_rpt)]) # missed in elig screen
+
+DM2[,age_rpt:=NULL]
+
+DM2[is.na(cov_start_dt),cov_start_dt:=pat_birth_dt]
+
+
+DM3=DM2[,.(pat_id,cov_start_dt,pat_gender,pat_birth_dt,pat_age,ENROLDURATION=(interval(cov_start_dt,PERIOD_END_DT) %/% months(1)))]
+
+
+DM2=DM3[ENROLDURATION>0]
+
+
+
 
 D3=merge(D3,DM2,by='pat_id')
-D3=D3[,.(pat_id,ICD10,pat_gender,pat_age=age_rpt)]
+
+D3=D3[,.(pat_id,ICD10,pat_gender,pat_age)]
+
+rm(list=c('E','ELIG0','Diags'))

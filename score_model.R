@@ -4,10 +4,10 @@
 ## with actual data.  
 ##
 ## Dependencies: 
-##  assign_hcc 
-##  widenfb
-##  more_vars
-##  AgeSexModel
+##  assign_hcc (assign_hcc.R)
+##  widenfb    (assign_hcc.R)
+##  more_vars  (interactions.R)
+##  AgeSexModel(AgeSexFactors.R)
 ##
 ## is that they are developed only using the data from
 ## the excel sheet.  This should be the first place
@@ -16,17 +16,38 @@
 ## might load those as a package, but I am waiting for
 ## other things to happen first
 #############################################################
-METAL_LEVEL='Platinum'    # measure for how cushy a plan is
-                          # used for ACA marketplace plans
-                          # we re basically just using as
-                          # placeholder to assume a cushy plan
+## package requirements.  These are the packages needed
+## to score.  Additional packages are needed to build the
+## scoring functions; those are kept in model_Inputs.R
+## and don't concert the scoring aspects
+#############################################################
 
-Scored_DM=AgeSexModel(DM[,
+require(tidyverse)
+require(data.table)
+require(readr)
+require(lubridate)
+
+# note: it is OK if Variable has missing values
+# that just means there will be no contribution
+# to the score
+
+Scored_DM=AgeSexModel(DM2[,
                          .(pat_id,
                            pat_gender,
-                           pat_age=round(age_rpt))])
+                           ENROLDURATION,
+                           pat_age)])
 
+Scored_DM = Scored_DM[,.(pat_id,pat_gender,pat_age,Variable,enrvar)]
+Scored_DM = Scored_DM %>% melt.data.table(c('pat_id','pat_gender','pat_age'),
+                                          c('Variable','enrvar'),
+                                          value.name = 'Variable')
+                                        
+Scored_DM = Scored_DM %>% select(-variable) %>% filter(!is.na(pat_id)) %>% mutate(value=1)
+# put model back - this code needs to be put into the AgeSexModel code
 
+ASB=AgeSexBands[,.(Model,Variable)]
+setkey(ASB,Variable)
+Scored_DM=merge(Scored_DM,ASB,by='Variable')
 
 #############################################################
 ## Assign HCC to diagnostic codes
@@ -40,16 +61,20 @@ STEP2=AHCCf(D3)
 #############################################################
 
 
+
 STEP2A=merge(STEP2,Scored_DM,by='pat_id')
+
 STEP2A=STEP2A[,.(pat_id,
                  pat_age=pat_age.x,
                  pat_gender=pat_gender.x,
                  HCC,
                  AgeBAND=Variable)]  
 
+
 STEP2A=merge(STEP2A,AgeSexBands[,.(AgeBAND=Variable,Model)],by='AgeBAND')
 
-rpt=function(DT) {DT[,.(pat_id,Model,AgeBAND,pat_gender,AGE_LAST,HCC)][order(pat_id)]}
+# rpt=function(DT) {DT[,.(pat_id,Model,AgeBAND,pat_gender,AGE_LAST,HCC)][order(pat_id)]}
+# f= line should go in a previous file
 
 f=widenfb(HCC2) # all these function builders must take spreadsheet tables as arguments
 STEP3=f(STEP2A)
@@ -107,6 +132,8 @@ measures=setdiff(varnames,ids)
 
 # YOU CAN SAFELY IGNORE THE TYPE CASTING WARNING FROM THIS STEP
 STEP5=melt.data.table(STEP4,ids,measures,na.rm=TRUE)
+STEP5[,Variable:=variable]
+STEP5[,variable:=NULL]
 
 ### Get coefficients
 ### again, make these functions?
@@ -117,41 +144,49 @@ STEP5=melt.data.table(STEP4,ids,measures,na.rm=TRUE)
 ## but there are other, better ways, even using data table
 ## task: look into these
 
-STEP6=merge(STEP5,ModelFactors[Metal==METAL_LEVEL],by.x=c('variable','Model'),
-                              ,by.y=c('Variable','Model'))
+## STEP6=merge(STEP5,ModelFactors[Metal==METAL_LEVEL],by.x=c('variable','Model'),
+##                               ,by.y=c('Variable','Model'))
 
 ## step 7 is useful for seeing how a score breaks down for a particular person
 
-STEP7=STEP6[,.(pat_id,Model,variable,pat_age,pat_gender,AgeBAND,value,Coeff,variable,y=value*Coeff)][y!=0]
+## STEP7=STEP6[,.(pat_id,Model,variable,pat_age,pat_gender,AgeBAND,value,Coeff,variable,y=value*Coeff)][y!=0]
 
-STEP8 = STEP7[,sum(y),by=.(pat_id,Model,pat_age,pat_gender,AgeBAND)]
+## STEP8 = STEP7[,sum(y),by=.(pat_id,Model,pat_age,pat_gender,AgeBAND)]
 
 # merge the Age Sex Enrollment variable in
-
-STEP9 = merge(STEP8,ModelFactors[Metal==METAL_LEVEL],by.x='AgeBAND',by.y='Variable')
-STEP9=STEP9[,.(pat_id,Model=Model.x,pat_age,pat_gender,V1,AgeBAND,AgeSexScore=Coeff,HCC_RISK=V1+Coeff)]
+outvars=c('pat_id','Model','pat_gender','pat_age','Variable','value')
 
 
+STEP6 = bind_rows(STEP5[,..outvars],Scored_DM[!is.na(pat_id),..outvars]) %>% distinct
+setkey(STEP6,pat_id,Model,Variable)
 
-## yellow flag: temporary fix
-## 
+# step7 is useful for breaking down how a risk score was arrived at
 
-## i fwe add age score and risk score, we will be overcounting
-## for age0_male and age1_male
+# STEP7= ScoreModel(STEP6,MF_Wide) %>% melt.data.table(c('Model','Variable','pat_id','pat_gender','pat_age','isUsed','Year'),
+#                                                    c('Bronze','Silver','Gold','Platinum','Catastrophic'))
+  
+STEP7=ScoreModel(STEP6,MF_Wide)                                                   
+setkey(STEP7,pat_id)
 
-STEP9[AgeBAND %like% 'AGE[01]',HCC_RISK:=V1]
+byVars = c('pat_id','Model','pat_gender','pat_age','isUsed')
 
-## 
-## expand to include age and eligibility
-## assume A has ENROLDURATION and AgeBand
-## columns
 
-HasClaims=STEP2A[,NA,by=pat_id]
-setkey(HasClaims,pat_id)
-NC=Scored_DM[!HasClaims,.SD,by=pat_id]
-N2C= merge(NC,ModelFactors[Metal==METAL_LEVEL],by='Variable')
-N2C=N2C[,.(pat_id,Model,pat_age,pat_gender,V1=NA,AgeBAND=Variable,AgeSexScore=Coeff,HCC_RISK=Coeff)]
+STEP8 = STEP7[,lapply(.SD,sum),.SDcols=Metals,by= c('pat_id','Model','pat_gender','pat_age','isUsed')][,.(pat_id,Model,pat_gender,pat_age,isUsed,Bronze,Silver,Gold,Platinum,Catastrophic)]
+setkey(STEP8,pat_id)
 
-# FinalScoring
+dups=STEP8[,.N,by='pat_id'][N>1]   # get all dups
+setkey(dups,pat_id)
 
-Answer=bind_rows(STEP9,N2C)
+dup_resolve=STEP8[dups][,head(.SD,1),by=pat_id] # get itms in the original data set then take first
+
+
+STEP8=STEP8[!dups] # remove dups
+
+Answer=bind_rows(STEP8,dup_resolve %>% select(-N)) # put them back bu tonly 1
+write_csv(Answer,'RiskScoresFinal.RData')
+
+cleanup=function(){
+rm(list =ls(pattern='STEP'))
+rm(D3,DM,DM2,DM3,Scored_DM)
+}
+

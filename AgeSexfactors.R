@@ -4,6 +4,9 @@
 ## report date went missing
 
 # DM=data.table(readRDS('DM.RData'))
+require(magrittr)
+require(data.table)
+require(tidyverse)
 
 enclose_braces=function(str) paste("{",str,"}")
 
@@ -81,10 +84,18 @@ K=ProgramStatements[,.(Model,antecedent=dt1,
                        assignment=paste("X[",dt1,",`:=`(",dt2,")]"))]
 
 ## build a block of statements, each one a data table conditional assignment
+AllAges=data.table(AllAges)
+
+## need the if/then parser here
+## but hardcode for now YELLOW FLAG
+
+
+enr_statements="X[,enrvar:=paste('ED',ifelse(ENROLDURATION<12,ENROLDURATION,12),sep='_')]"
+ENRMODEL=data.table(assignment=c(enr_statements))
 
 ## e2 variable is statements as strings, wrap in parens
 ## hardcoded variable names YELLOW FLAG
-AgeSexModel=setterhl(K)
+AgeSexModel=setterhl(bind_rows(K,ENRMODEL))
 ## convert e2 into an R expression that can be evaluated
 
 ## yellow flag:  We are not using the AGE_LAST variable
