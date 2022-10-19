@@ -99,6 +99,7 @@ ccValid2022=read_excel(fn,sheet='Table 3', skip=4,
 ## set_to_zero table
 # which hcc get set to zero if you have more serious condition
 
+<<<<<<< HEAD
 # split out commas, trim new variables, then pivot long
 # result wil be a table with HCC | set_zero as columns
 
@@ -127,10 +128,6 @@ agest_stmt <- function(variable) {
   str_detect(variable,as)
 }
 
-
-
-
-## model_factors table
 
 model_factors=function(Table,MODEL_YEAR=2022) {
   if (is.integer(Table)) {
