@@ -1,3 +1,14 @@
+############################################################
+##
+## Program:  Model_inputs.R
+##
+## purpose: read in excel tables and create R functions
+## based on them.  The responsibility of this code is 
+## just to build R functions (and one day, SQL) , not
+## to run them.
+##
+############################################################
+
 ## Read Spreadsheet Tables
 
 rm(list=ls())
@@ -15,11 +26,35 @@ require(readr)
 require(lubridate)
 
 # date  utility and helper functions
+enclose_braces=function(str) paste("{",str,"}")
+
 fp=function(model.year) {
  file.path(sprintf('CY%d DIY tables 06.30.%d.xlsx',model.year,model.year))
 }
 
 fn=fp(2022)
+
+## field splitter.  Use this number in str_split_fixed or tstrsplit
+
+max_fields = function(STZv) {
+  str_split(STZv,',') %>% lapply(length) %>% unlist %>% max
+}
+
+## translates a set to zero table into an R function
+## that will take a data table and execute the relevant
+## set-to-zero statements in that data table's scope
+
+SetToZerofb = function(code_table,base_name='HCC',targetName='set_zero') {
+  a='X['
+  b='==1,`:=`('
+  c=',0)]'
+  
+  block=code_table[,.(assignment=paste(a,pred=.SD[[base_name]],b,.SD[[targetName]],c,sep=''))]
+  return(block)
+  
+}
+
+
 
 ## hcc_group : Data structures to write code for computing the 
 ## grouping variables
@@ -75,7 +110,7 @@ Adult=extra_vars('Table 6')
 Child=extra_vars('Table 7')
 Infant=extra_vars('Table 8')
 
-AllAges=rbind(Adult,Child,Infant) %>% fill_in_blank_rows
+AllAges=rbind(Adult,Child,Infant) %>% fill_in_blank_rows %>% data.table
 rm(list=c('Adult','Child','Infant')) # now redundant
 
 
@@ -127,9 +162,19 @@ ss = function(hcc_code) {
 SetToZeroRAW=read_excel(fn,skip=3,
                      sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>% data.table
 
+
+## we need to calculate the maximum number of fields!
+## count # of separators and add one
+## once that's done we can run the dplyr code
+
+
+
+# how many slots to we need to split all the strings?
+MFIELDS=max_fields(SetToZeroRAW$SetZero)
+
 SetToZero=SetToZeroRAW %>%
        select(-Obs) %>%
-       separate(SetZero,sep=',',into=paste('X',1:8,sep='')) %>%
+       separate(SetZero,sep=',',into=paste('X',1:MFIELDS,sep='')) %>%
        mutate(across(.fns=~(str_trim(.x)))) %>%
        pivot_longer(starts_with('X')) %>% mutate(label=NULL) %>%
        rename(set_zero=value) %>% filter(!is.na(set_zero)) %>% mutate(name=NULL)
@@ -145,6 +190,7 @@ SetToZero=SetToZero[,lapply(.SD,ss)][order(HCC)]
 # object is to get a list of assignments to set to zero based on 
 # the variable naming convention used in ModelFactors (how will this change for medicare?)
 
+## create set to zero assignments
 
 
 ss = function(hcc_code) {
@@ -172,6 +218,7 @@ agest_stmt <- function(variable) {
   as="([MF])AGE_LAST_(\\d\\d)_(\\d\\d)"
   str_detect(variable,as)
 }
+print(">-----checkpoint 1")
 
 
 
@@ -195,7 +242,6 @@ model_factors=function(Table,MODEL_YEAR=2022) {
   names(U)=c('Model','Variable','isUsed','Metal','Coeff','Year')
   return(U)
 }
-
 ModelFactors = data.table(model_factors(9))
 
 ELIG=ModelFactors[Variable %like% 'ED_']
@@ -216,7 +262,76 @@ setterhl = function(code) {
   body(base)=parse_expr(block)
   return(base)
 }
+########################################################################
+## read tghe HCPCS and NDC tables mapping those codes to RXC codes
+## then create an R function that maps claims and Rx RXC
+##
+## this function will output a data table with two columns (pat_id,RXC)
+########################################################################
 
-# function to perform the pivot 
+rxc_table=read_excel(fn,"Table 10b",skip=3)
+separator=which(is.na(rxc_table$RXC))
+rxc_table=data.table(rxc_table)[1:(separator-1)]
+
+## get all the codes and create a set of variable names
+rxcodes=rxc_table %>% select(RXC) %>% distinct() %>% arrange(1) %>%
+   pull %>% as.integer %>% paste('RXC_',.,sep='')
 
 
+# this can be an inner join because we are just stacking and
+# adding.  everybody will be accounted for eventually.
+# there are also issues with comorbidities
+
+assign_rxc = function(rxc) 
+  function(Claims_HCPCS) {
+    merge(Claims_HCPCS,rxc,by='HCPCS')
+   }
+
+
+## we need a function to convert a set-to-zero table 
+## to a set of instructions
+
+# standardize RXC names
+
+RXStandardvar=function(RX) RX %>% str_pad(2,pad='0') %>% paste('RXC_',.,sep = '')
+
+rx_stz=read_excel(fn,"Table 11",skip=2) 
+rx_stz=rx_stz %>% rename('STZ'=2) %>%
+  filter(!is.na(STZ)) %>% 
+  mutate(RXC=RXStandardvar(RXC),STZ=RXStandardvar(STZ)) %>% 
+  data.table
+
+
+
+RXC_adjust_vars=SetToZerofb(rx_stz,base_name = 'RXC',targetName = 'STZ') %>% setterhl()
+
+## we are going to have to create RXC_01 through RXC_10 for each person
+
+NDC=read_excel(fn,"Table 10a",skip=2) %>% filter(!is.na(NDC)) %>% data.table
+
+tbl=function(DT,v) {DT[,.N,by=v]}
+NDC[,RXC:=RXStandardvar(RXC)]
+
+## two primary inptus: rxc_table creates a function : med claims hcpcs -> rxc
+## f=assign(rxc_table)
+## f(df) will produce a table (Id -> RXC code)
+
+## assign based on NDC
+## assign_NDC : (NDC table to Rx Table) to an R function
+##
+assign_NDC = function(NDC) 
+  function(RXData)  merge(RXData,NDC,by='NDC')
+
+## g=assign_NDC(NDC) will be a function that maps RXDAta (when we get it)
+## to RXC
+
+# both claims and rx must have a pat_id field
+
+ID_TO_RXC = function(NDC,rxc_table)
+  function(Claims,Rx) {
+    tbl_hcpcps = assign_rxc(rxc_table)(Claims)
+    tbl_ndc = asssign_NDC(NDC)(Rx)
+    bind_rows(tbl_hcpcps,tbl_ndc) %>% arrange(pat_id) %>% distinct
+  }
+
+## sample call ID_TO_RSSC
