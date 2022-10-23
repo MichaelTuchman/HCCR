@@ -28,6 +28,10 @@ require(lubridate)
 # date  utility and helper functions
 enclose_braces=function(str) paste("{",str,"}")
 
+
+count_na=function(v) sum(is.na(v))
+checkNA=function(DT) DT[,lapply(.SD,count_na)]
+
 fp=function(model.year) {
  file.path(sprintf('CY%d DIY tables 06.30.%d.xlsx',model.year,model.year))
 }
@@ -58,6 +62,24 @@ SetToZerofb = function(code_table,base_name='HCC',targetName='set_zero') {
 
 ## hcc_group : Data structures to write code for computing the 
 ## grouping variables
+
+## set_to_zero table
+# which hcc get set to zero if you have more serious condition
+# split out commas, trim new variables, then pivot long
+# result wil be a table with HCC | set_zero as columns
+
+ss = function(hcc_code) {
+  x=tstrsplit(hcc_code,'_',fill='')
+  x0='HHS_HCC'
+  x1=str_pad(str_squish(x[[1]]),3,'left','0')
+  if (length(x)>1)
+    x2=ifelse(x[[2]]=='','',paste('_',x[[2]],sep=''))
+  else
+    x2=''
+  res=paste(x0,x1,x2,sep='')
+  res[res=='HHS_HCCNA']=NA # inefficient. think this through!
+  return(res)
+}
 
 ## HCC Grouping variables
 extra_vars=function(SheetNoC) {
@@ -136,28 +158,10 @@ HCC2=HCC%>%
 
 HCC2[!is.na(sex.cond),`:=`(sex.cond=toupper(str_sub(sex.cond,1,1)))]
 HCC2[!is.na(sex.split),`:=`(sex.split=toupper(str_sub(sex.cond,1,1)))]
-
+HCC2[,HCC:=ss(CC)]
 # convert dots to underlines
 
 # ------------- HCC set to zero condition table -------------------
-
-## set_to_zero table
-# which hcc get set to zero if you have more serious condition
-# split out commas, trim new variables, then pivot long
-# result wil be a table with HCC | set_zero as columns
-
-ss = function(hcc_code) {
-  x=tstrsplit(hcc_code,'_',fill='')
-  x0='HHS_HCC'
-  x1=str_pad(str_squish(x[[1]]),3,'left','0')
-  if (length(x)>1)
-    x2=ifelse(x[[2]]=='','',paste('_',x[[2]],sep=''))
-  else
-    x2=''
-  res=paste(x0,x1,x2,sep='')
-  res[res=='HHS_HCCNA']=NA # inefficient. think this through!
-  return(res)
-}
 
 SetToZeroRAW=read_excel(fn,skip=3,
                      sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>% data.table
@@ -222,6 +226,25 @@ print(">-----checkpoint 1")
 
 
 
+## 
+score_model = function(Model_factor_table,by='pat_id') {
+  ## scoring might fail quietly if variables are not defined
+  ## we could check for this
+  
+  ## we should also have one record per id per variable
+  ## we should check for this also
+  
+  ## model data needs to have a by var, in this case patient id
+  MFT=Model_factor_table
+  function(MD) {
+    ScoreByTerm=merge(MD,Model_factor_table,by='Variable')
+    scores=ScoreByTerm[,lapply(.SD,sum),by=by] # apply all models (one per column)
+    return(scores)
+  }
+  
+}
+
+
 
 ## model_factors table
 
@@ -255,10 +278,10 @@ STZCode2=STZCode[1:3,.(assignment=paste("X[",HCC,",",set_zero,"]"))]
 # and returns a function that will execute those
 # statements on any data table (assuming it has the required fields)
 
-setterhl = function(code) {
+setterhl = function(codeDT) {
   base = function(X) {}
   # must condense to a single expression
-  block = paste("{",paste(code$assignment,collapse=';'),";return(X)}")
+  block = paste("{",paste(codeDT$assignment,collapse=';'),";return(X)}")
   body(base)=parse_expr(block)
   return(base)
 }
@@ -276,7 +299,6 @@ rxc_table=data.table(rxc_table)[1:(separator-1)]
 ## get all the codes and create a set of variable names
 rxcodes=rxc_table %>% select(RXC) %>% distinct() %>% arrange(1) %>%
    pull %>% as.integer %>% paste('RXC_',.,sep='')
-
 
 # this can be an inner join because we are just stacking and
 # adding.  everybody will be accounted for eventually.
