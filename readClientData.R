@@ -70,17 +70,27 @@ DM2[,age_rpt:=NULL]
 
 DM2[is.na(cov_start_dt),cov_start_dt:=pat_birth_dt]
 
-
 DM3=DM2[,.(pat_id,cov_start_dt,pat_gender,pat_birth_dt,pat_age,ENROLDURATION=(interval(cov_start_dt,PERIOD_END_DT) %/% months(1)))]
 
-
 DM2=DM3[ENROLDURATION>0]
-
-
-
 
 D3=merge(D3,DM2,by='pat_id')
 
 D3=D3[,.(pat_id,ICD10,pat_gender,pat_age)]
 
 rm(list=c('E','ELIG0','Diags'))
+
+
+## Infusions and hospital drugs
+
+qry="
+SELECT DISTINCT 
+[DEID_PAT_ID] as pat_id
+,[proc_cd] as HCPCS
+FROM [ModelDevelopment].[dbo].[claims_20210601_to_20220531]
+where PROC_CD_TYPE='HCPCS' AND [PROC_cd] IS NOT NULL
+"
+
+HCPCS=dbGetQuery(con,qry)
+HCPCS=data.table(HCPCS)
+setkey(HCPCS,pat_id)

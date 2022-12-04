@@ -127,14 +127,6 @@ HCC2[!is.na(sex.split),`:=`(sex.split=toupper(str_sub(sex.cond,1,1)))]
 HCC2[,HCC:=ss(CC)]
 # convert dots to underlines
 
-<<<<<<< Updated upstream
-<<<<<<< HEAD
-# split out commas, trim new variables, then pivot long
-# result wil be a table with HCC | set_zero as columns
-=======
-# ------------- HCC set to zero condition table -------------------
->>>>>>> Stashed changes
-
 SetToZeroRAW=read_excel(fn,skip=3,
                      sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>% data.table
 
@@ -169,10 +161,6 @@ agest_stmt <- function(variable) {
   str_detect(variable,as)
 }
 
-
-<<<<<<< Updated upstream
-=======
-
 ## 
 score_model = function(Model_factor_table,by='pat_id') {
   ## scoring might fail quietly if variables are not defined
@@ -195,7 +183,6 @@ score_model = function(Model_factor_table,by='pat_id') {
 
 ## model_factors table
 
->>>>>>> Stashed changes
 model_factors=function(Table,MODEL_YEAR=2022) {
   if (is.integer(Table)) {
     tbl=sprintf("Table %d",Table)
@@ -244,3 +231,9 @@ ScoreModel=function(LongForm,MF) {
 }
 Metals=c("Catastrophic", "Bronze", "Silver", "Gold", "Platinum") # put in 
 
+## HCPCS Drug Codes
+
+HCPCS_CODES=read_excel(fn,sheet='Table 10b', skip=3, 
+               col_names=c('RXC','RXC_LABEL','HCPCS'),
+               col_types=c('text','text','text')) %>% data.table
+setkey(HCPCS_CODES,HCPCS)
