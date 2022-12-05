@@ -14,4 +14,4 @@ fuzzy_merge = function(Data,Ranges) {
   return(STAGE2)
 }
 debug(fuzzy_merge)
-fuzzy_merge(DataCodes,R0)
+fuzzy_merge(DataCodes[code=='0241U'],R0)

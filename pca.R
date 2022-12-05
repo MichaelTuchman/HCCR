@@ -13,14 +13,19 @@ library(rlang)
 ################################################################
 ## uSER iNPUT 
 ################################################################
-UNNEEDED_SECTIONS=c('Prolonged Services','Adaptive Behavior Services',
-  'Non-Face-to-Face Evaluation and Management Services','Hospital Inpatient Services',
+UNNEEDED_SECTIONS=c('Prolonged Services',
+  'Adaptive Behavior Services',
+  'Non-Face-to-Face Evaluation and Management Services',
+ 'Hospital Observation Services',
   'Special Evaluation and Management Services','Newborn Care Services',
   'Delivery/Birthing Room Attendance and Resuscitation Services',
   'Inpatient Neonatal Intensive Care Services and Pediatric and Neonatal Critical Care Services',
   'Cognitive Assessment and Care Plan Services',
+  'Genomic Sequencing Procedures and Other Molecular Multianalyte Assays', #replaced by Tier II molpath 
   'General Behavioral Health Integration Care Management')
-  
+#################
+# helper functions
+################
 proc=function(R0,UNNEEDED_SECTIONS) {
   R0=delete_overlap(UNNEEDED_SECTIONS)
   Matched_codes=fuzzy_merge(DataCodes,R0)
@@ -29,9 +34,64 @@ proc=function(R0,UNNEEDED_SECTIONS) {
   return(list(Duplicates=Dups,MissingCodes=Miss))
 }
 
+# Codes in data that are not on our reference table
+thedups=function(DT,keys) { 
+  setkeyv(DT,keys)
+  A=DT[,.N,by=keys][N>1];
+  setkeyv(A,keys)
+  return(A)
+}
 
+dkey=function(DT,keys) {
+  setkeyv(DT,keys)
+  new=copy(DT[,dupkeyctr:=1:.N,by=keys])
+  setkeyv(new,keys)
+  return(new)
+}
 
-  
+## - deletion of overlapping intervals
+`%notin%` = Negate(`%in%`)
+`%notlike%` = Negate(`%like%`)
+
+delete_overlap = function(sec,DT=R0) {
+  DT=DT[section %notin% sec]
+  return(DT)
+}
+
+# use a three digit search key
+addkeys=function(C,digits=SEARCH_DIGITS) {
+  C[,`:=`(g1=grp_proc_cd(code),k1=str_sub(code,1,digits))]
+  setkey(C,g1,k1)
+  return(C)
+}
+
+in_range = function(x,range_start,range_end){
+  x>=range_start & x<=range_end
+}
+
+grouped_counts <- function(.data,group_col) {
+  .data[,.N,by=eval(as_name(enquo(group_col)))]
+}
+
+sample_claims <- function(DP,prop) {
+  grouped_counts(DP,deid_clm_id) %>% slice_sample(prop=.01) %>% left_join(DP,by='deid_clm_id')
+}
+
+wide_ds=function(MDPC,threshold=500) {
+  USE=MDPC[,sum(dummy),by=proc_grp][V1>=threshold] %>% lbl
+  ASET=MDPC %>% inner_join(USE,by='proc_grp')
+  CAST1=ASET%>% dcast.data.table(rend_npi+rend_taxonomy_cd_desc~proc_grp,fill=0,value.var='dummy',fun.aggregate = sum)
+  return(CAST1)
+}
+
+decode_section=function(sec,DT=PR) {
+  PR[scode=='sec_353',section] %>% unique
+}
+
+###################################################################
+# data load section
+###################################################################
+
 
 con <- dbConnect(odbc(), 
                  Driver = "SQL Server", 
@@ -101,7 +161,7 @@ qry2="select * from [ReferenceData].[dbo].[ICD]"
 
 ## download claims
 
-DP=data.table(dbGetQuery(con,qry)) %>% data.table
+downloadDP=function() {DP=data.table(dbGetQuery(con,qry)) %>% data.table}
 ICD=data.table(dbGetQuery(con,qry2))
 setkey(DP,pat_id) 
 ICD=ICD[,.(ICD10=code,short_desc)]
@@ -158,34 +218,30 @@ NR = fread('range_fix.csv',colClasses=rep('character',3))
 R0=rbind(NR,R0,fill=TRUE)
 
 
-R0[,`:=`(g1=grp_proc_cd(range_start),g2=grp_proc_cd(range_end))]
+
 # fix some overlapping ranges by moving one goal post or the other
 
 R0[range_start=='80143',range_end:='80304']  # drug assays
 R0[range_start=='80305',range_end:='80399']
-R0[range_start=='81105',`:=`(range_end='81364',section='Molecular Pathology Tier I')]
-R0[range_end=='81479',range_start:='81472']
-R0[.('90460'),range_end:='90475']
-
-## - deletion of overlapping intervals
-`%notin%` = Negate(`%in%`)
-delete_overlap = function(sec,DT=R0) {
-  DT=DT[section %notin% sec]
-  return(DT)
-}
-R0=delete_overlap(UNNEEDED_SECTIONS)
-
-R0=R0[section=='Diagnostic/Screening Processes or Results',`:=`(range_start='3006F',range_end='33015')] # cutoff
+R0[range_start=='81105',`:=`(range_end='81383',section='Molecular Pathology Tier I')]
+# R0[range_end=='81479',range_start:='81472']
+R0[range_start=='90460',range_end:='90475']
+R0[,`:=`(g1=grp_proc_cd(range_start),g2=grp_proc_cd(range_end))]
 SEARCH_DIGITS=1
 R0[,k1:=str_sub(range_start,1,SEARCH_DIGITS)]
 R0[,k2:=str_sub(range_end,1,SEARCH_DIGITS)]
 setkey(R0,g1,k1)
-# use a three digit search key
-addkeys=function(C,digits=SEARCH_DIGITS) {
-  C[,`:=`(g1=grp_proc_cd(code),k1=str_sub(code,1,digits))]
-  setkey(C,g1,k1)
-  return(C)
-}
+
+
+## R0[.('9','9')]
+
+## NO MORE CHANGES TO R0 AFTER THIS LINE. 
+
+
+R0=delete_overlap(UNNEEDED_SECTIONS)
+
+R0=R0[section=='Diagnostic/Screening Processes or Results',`:=`(range_start='3006F',range_end='33015')] # cutoff
+
 
 ########################################################
 # convert procedure code to ranges
@@ -196,115 +252,38 @@ DataCodes=DP %>% group_by(proc_cd) %>% summarize(n=n()) %>% rename(code=proc_cd)
 # make sure ranges (R0) above are set to the same number of digits for their search key!!
 setkey(DataCodes,g1,k1)
 
-Matched_codes=fuzzy_merge(DataCodes,R0)
-MissingCodes = DataCodes %>% anti_join(Matched_codes,by='code')
+MatchedCodes=fuzzy_merge(DataCodes,R0) # we joined!!
+
+# codes that are in the claims data but not matched
+# to any interval
+
+# appropriate ranges not in table
+# because of keyed join, I have to put these back in manually
+
+MissingCodes = DataCodes %>% anti_join(MatchedCodes,by='code') %>% copy()
 
 Duplicates=Matched_codes[thedups(Matched_codes,keys='code')]
+MissingCodes[,`:=`(range_start='Unclassified',range_end='Unclassified',section='To be classified later')]
 
-# Codes in data that are not on our reference table
-thedups=function(DT,keys) { 
-  setkeyv(DT,keys)
-  A=DT[,.N,by=keys][N>1];
-  setkeyv(A,keys)
-  return(A)
-}
+CodeMatchTable=rbind(Matched_codes %>% select(-g2,-k2),MissingCodes) %>% rename(proc_cd=code)
+setkey(CodeMatchTable,proc_cd)
 
-dkey=function(DT,keys) {
-  setkeyv(DT,keys)
-  new=copy(DT[,dupkeyctr:=1:.N,by=keys])
-  setkeyv(new,keys)
-  return(new)
-}
+# create numbered sections
+SecMatch=CodeMatchTable[,1,by=section][,scode:=paste('sec',1:.N,sep='_')]
 
-## remove things that are now out of range
-in_range = function(x,range_start,range_end){
-  x>=range_start & x<=range_end
-}
+# create the final mapping proc_cd -> section -> section #
 
+PR=merge(CodeMatchTable,SecMatch,by='section')
+setkey(PR,proc_cd)
 
-## mapping from procedure codes to procedure groups
-####################################################
-#  > map1('V5364')
-#  [1] "prcg_444"
+# takes about 5 seconds for 3 million records
+system.time(DPS<-merge(DP,PR,by='proc_cd'))
+setkey(DPS,deid_clm_id,proc_cd)
 
-#  map1(oneOnly=FALSE)
-# shows entire table underlying the map. 
+# save current state so we don't have to run this again
 
-# tables are producing NA which is not OK
-# fix this, then continue to run
-
-# map1('99213')
-# [1] "prcg_323"
-# map1('99213',oneOnly = FALSE)
-## > section proc_cd n proc_grp
-## 1: Office visit for established p   99213 5 prcg_323
-
-####################################################
-
-## Proc codes successfully resolved
-## Proc codes with duplicates no successful resolution
-
-grouped_counts <- function(.data,group_col) {
-  .data[,.N,by=eval(as_name(enquo(group_col)))]
-}
-
-sample_claims <- function(DP,prop) {
-  grouped_counts(DP,deid_clm_id) %>% slice_sample(prop=.01) %>% left_join(DP,by='deid_clm_id')
-}
-
-# going to need to break procedure code down into groups
-
-# hardcodes of difficult to place procedures
-
-
-
-
-# mismatch of length is frustrating
-DPS = left_join(DP,L_PC,by='proc_cd')
-
-D## all sections should have a minimum number of claims
-dim(DPS)
-
-## PC only table
-
-
-MDPC = DPS[,.(rend_npi,proc_cd,proc_cd_desc,proc_grp=w,rend_taxonomy_cd_desc)]
-MDPC[,dummy:=1]
-MDPC[,whichsample:=sample(1:10,.N,replace=TRUE)]
-lbl=function(DT) merge(DT,SN[,.(proc_grp,section)],by='proc_grp')
-
-
-wide_ds=function(MDPC,threshold=500) {
-  USE=MDPC[,sum(dummy),by=proc_grp][V1>=threshold] %>% lbl
-  ASET=MDPC %>% inner_join(USE,by='proc_grp')
-  CAST1=ASET%>% dcast.data.table(rend_npi+rend_taxonomy_cd_desc~proc_grp,fill=0,value.var='dummy',fun.aggregate = sum)
-  return(CAST1)
-}
-
-###########################################################################
-## do the PC analysis 
-###########################################################################
-
-
-analysis_set=wide_ds(MDPC[whichsample==1]) # USE 10% OF DATA ONLY
-numeric_columns=function(DT) {
-  DT[,.SD,.SDcols=is.numeric]
-}
-
-f = function(i,...) {
-  MDPC[whichsample==i] %>% wide_ds(threshold=500) %>% numeric_columns %>% prcomp(scale.=TRUE,...)
-}
-
-models=lapply(1:3,f,rank=40)
-
-score_data = function(DT) {
-   scores= DT %>% select(contains('prcg')) %>% predict(models[[1]],newdata=.)
-   output=cbind(data,scores)
-   return(output)
-}
-
-
-
+saveRDS(PR,'MappingTableForPCA.RDS')
+saveRDS(DPS,'DataForPCA.RDS')
 
 
 
