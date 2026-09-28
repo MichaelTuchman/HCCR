@@ -60,12 +60,12 @@ HCCR currently reads the ones marked **used**.
 | Table 1 | Which model (Adult, Child, Infant) applies at which age | no (hard-coded) |
 | Table 2 | Procedure codes that make a claim eligible | no |
 | Table 3 | Diagnosis code → condition category crosswalk, with age/sex conditions | **used** |
-| Table 4 | Hierarchies: which categories to zero out when a more serious one is present | read, not yet applied |
+| Table 4 | Hierarchies: which categories to zero out when a more serious one is present | **used** |
 | Table 5 | Age/sex band definitions | **used** |
 | Tables 6, 7, 8 | Extra variables for Adult, Child, Infant models, written as SAS `if/then` rules | **used** |
 | Table 9 | Coefficients for every variable, by metal tier | **used** |
-| Table 10a / 10b | Prescription drug → drug category crosswalks (NDC and HCPCS codes) | 10b read, not yet applied |
-| Table 11 | Drug-category hierarchies | no |
+| Table 10a / 10b | Prescription drug → drug category crosswalks (NDC and HCPCS codes) | **used** (10a needs pharmacy claims, see Known gaps) |
+| Table 11 | Drug-category hierarchies | **used** |
 | Table 12 | Conditions excluded from each model | no |
 
 ## How the code is organised
@@ -81,10 +81,10 @@ flowchart TD
   SQL[("Client SQL Server<br/>claims + eligibility")]
 
   subgraph build["1 · Turn the workbook into R (no patient data)"]
-    MI["Model_Inputs.R<br/>reads Tables 3,4,5,6-8,9,10b"]
+    MI["Model_Inputs.R<br/>reads Tables 3,4,5,6-8,9,10a,10b,11"]
     ASF["AgeSexfactors.R<br/>→ AgeSexModel()"]
     INT["interactions.R<br/>→ more_vars()"]
-    AH["apply_hcc.R<br/>→ assign_hcc(), widenfb()"]
+    AH["apply_hcc.R<br/>→ assign_hcc(), apply_hierarchy(),<br/>assign_rxc(), widenfb()"]
   end
 
   subgraph data["2 · Load patient data"]
@@ -100,18 +100,19 @@ flowchart TD
     SL["slices.R"]
   end
 
-  OUT[["RiskScoresFinal.RData<br/>(actually a CSV)"]]
+  OUT[["RiskScoresFinal.csv"]]
 
   XLSX --> MI
   MI -- "AgeSexBands, AllAges, setterhl()" --> ASF
   MI -- "AllAges, setterhl()" --> INT
   MI -- "HCC2, ss()" --> AH
+  MI -- "SetToZero, RXCSetToZero,<br/>HCPCS_CODES, NDC_CODES, RXCvars" --> SM
   SQL --> RCD
   ASF --> SM
   INT --> SM
   AH --> SM
   MI -- "MF_Wide, Metals, ScoreModel()" --> SM
-  RCD -- "D3, DM2" --> SM
+  RCD -- "D3, DM2, HCPCS" --> SM
   SM --> OUT
   SM -- "Answer, STEP3, STEP6, STEP8" --> BP
   SM -- "Answer, STEP6" --> SL
@@ -149,10 +150,14 @@ the session, so it must run first.
 source("Model_Inputs.R")    # read the workbook
 source("AgeSexfactors.R")   # build AgeSexModel()
 source("interactions.R")    # build more_vars()
-source("apply_hcc.R")       # build assign_hcc(), widenfb()
+source("apply_hcc.R")       # build assign_hcc(), apply_hierarchy(), assign_rxc(), widenfb()
 source("readClientData.R")  # pull patients from SQL Server
 source("score_model.R")     # compute scores → Answer
 ```
+
+To try it without the database, `Rscript tests/run_synthetic.R` runs the same
+steps on six made-up patients (`tests/synthetic_data.R`) chosen to exercise the
+hierarchies, the age and sex filters, and the drug variables.
 
 ## File guide
 
@@ -162,10 +167,10 @@ source("score_model.R")     # compute scores → Answer
 |---|---|---|---|
 | `Model_Inputs.R` | The DIY workbook (tabs 3, 4, 5, 6, 7, 8, 9, 10b) | `HCC2` (diagnosis → HCC), `SetToZero` (hierarchies), `AgeSexBands`, `AllAges` (if/then rules), `ModelFactors` / `MF_Wide` (coefficients), `Metals`, `HCPCS_CODES`; helper functions `ss()`, `setterhl()`, `ScoreModel()` | Loads every table the model needs and tidies it. `setterhl()` is the core trick: it takes a table of R statements stored as text and turns them into one callable R function. |
 | `AgeSexfactors.R` | `AgeSexBands`, `AllAges`, `setterhl()` | `AgeSexModel()` | Turns each age/sex band (e.g. `FAGE_LAST_45_49`) into a rule like `pat_gender=='F' & pat_age>=45 & pat_age<=49`, adds the enrollment-duration rule, and compiles them into `AgeSexModel()`. Also builds SQL `CASE WHEN` text (`sql1`, `sql2`) that is not used yet. |
-| `interactions.R` | `AllAges`, `setterhl()` | `more_vars()` | Translates the SAS `if … then do; …; end;` rules from Tables 6 to 8 into R `data.table` assignments and compiles them into `more_vars()`. This is the "SAS to R compiler". |
-| `apply_hcc.R` | `HCC2`, `ss()` | `assign_hcc()`, `widenfb()`, `HCCvars` | `assign_hcc()` joins a patient's diagnoses to condition categories and drops those that fail the sex condition. `widenfb()` pivots to one row per patient with one 0/1 column per category, guaranteeing every category column exists. |
+| `interactions.R` | `AllAges`, `setterhl()` | `more_vars()` | Translates the SAS `if … then do; …; end;` rules from Tables 6 to 8 into R `data.table` assignments and compiles one function per model (Adult, Child, Infant); `more_vars()` applies each patient's own model. This is the "SAS to R compiler". |
+| `apply_hcc.R` | `HCC2`, `ss()` | `assign_hcc()`, `apply_hierarchy()`, `assign_rxc()`, `widenfb()`, `HCCvars` | `assign_hcc()` joins a patient's diagnoses to condition categories and drops those that fail the age or sex conditions and splits. `apply_hierarchy()` drops the milder categories (Tables 4 and 11). `assign_rxc()` maps drug codes to drug categories. `widenfb()` pivots to one row per patient with one 0/1 column per category, guaranteeing every category column exists. |
 | `readClientData.R` | SQL Server `ModelDevelopment` database: `eligibility`, `claims_20210601_to_20220531` | `D3` (patient × diagnosis), `DM2` (patient age, sex, months enrolled), `HCPCS` (patient × drug/procedure code) | Pulls one year of claims (June 2021 to May 2022) and enrollment for the client. |
-| `score_model.R` | Everything above | `STEP2` … `STEP8`, `Answer`; writes `RiskScoresFinal.RData` | Runs the pipeline: age/sex bands → HCC assignment → wide table → combination flags → long table → join coefficients → sum per patient per metal tier. `STEP7` shows each patient's score broken down by variable. |
+| `score_model.R` | Everything above | `STEP2` … `STEP8`, `Answer`; writes `RiskScoresFinal.csv` | Runs the pipeline: age/sex bands → HCC assignment → hierarchies → drug categories → wide table → combination flags → long table → join coefficients → sum per patient per metal tier. `STEP7` shows each patient's score broken down by variable. |
 | `byPerson.R` | `STEP3`, `STEP8`, `Answer`, `HCCvars` | A histogram and summary of Silver scores | Quick look at the distribution of results. |
 | `slices.R` | `Answer`, `STEP6`, `ModelFactors`, `HCC_HELPER` | `slicer()`, `j()` | Pulls the patients in a score range and lists the conditions driving their scores. `HCC_HELPER` is not defined anywhere in the repo. |
 
@@ -175,8 +180,9 @@ source("score_model.R")     # compute scores → Answer
 |---|---|
 | `readEnrollment.R` | Earlier copy of `readClientData.R`. Uses `PERIOD_END_DT` before defining it. |
 | `ageSexRisk.R` | Earlier approach to age/sex scoring. Depends on `AMTS` and `TBL1`, which no longer exist. |
-| `age_sex_testing.R` | Scratch copy of `AgeSexfactors.R`. Also defines `remove_subordinate_hcc()`, the hierarchy step, which nothing calls. |
+| `age_sex_testing.R` | Scratch copy of `AgeSexfactors.R`. Also defines `remove_subordinate_hcc()`, an early hierarchy attempt replaced by `apply_hierarchy()`. |
 | `so_r_example.R` | Unrelated parallel-computing snippet (has syntax errors). |
+| `tests/` | `synthetic_data.R` stands in for `readClientData.R` with six made-up patients; `run_synthetic.R` runs the pipeline on them. |
 | `sample.dat` | A few lines copied from Tables 6 and 7, showing the SAS rule syntax. |
 | `ClaimsAS.RData` | Saved R workspace (about 5 MB unpacked), presumably sample claims or age/sex data; no script loads it. |
 
@@ -198,22 +204,16 @@ These are what a reader would trip over when running the pipeline today:
 - **Tied to one client's database.** `readClientData.R` connects to a specific
   SQL Server address and table names, with the date range written into the
   code.
-- **Hierarchies are not applied.** Table 4 is read into `SetToZero`, but the
-  function that applies it (`remove_subordinate_hcc()` in `age_sex_testing.R`)
-  is never called, so a patient can be scored for both a condition and its
-  milder version.
-- **Age conditions on diagnoses are not enforced.** In `assign_hcc()` the age
-  filter is commented out; only the sex filter is applied.
-- **Prescription drug variables are missing.** Table 10b is loaded and
-  `readClientData.R` pulls HCPCS codes, but they are never turned into drug
-  category (RXC) variables. Table 10a (pharmacy NDC codes) is not read.
-- **Hard-coded spreadsheet rows.** `interactions.R` picks which rules to
-  translate by row number (`c(1:66, 67:75, 135:178, 209:364)`), which will
-  break when the workbook changes. The `and`/`or` replacement is also a plain
-  text substitution that would alter any variable name containing those
-  letters.
-- **Output file name.** `score_model.R` writes a CSV to a file named
-  `RiskScoresFinal.RData`.
+- **Pharmacy claims.** Drug categories come from HCPCS codes on medical
+  claims. Table 10a (pharmacy NDC codes) is loaded as `NDC_CODES` and
+  `assign_rxc(NDC_CODES)` will use it, but `readClientData.R` does not pull
+  pharmacy claims yet.
+- **One age for everything.** The workbook tests diagnosis conditions on age at
+  diagnosis and age splits on age at year end; the client data has a single
+  `pat_age`, which is used for both.
+- **Cost-sharing adjustment.** The `CSR_ADJUSTED_SCORE_*` multipliers in
+  Tables 6 to 8 are not applied, and `Answer` reports all five metal tiers
+  rather than picking the patient's own plan.
 - **Model year.** The workbook file name and year 2022 are fixed in
   `Model_Inputs.R`.
 

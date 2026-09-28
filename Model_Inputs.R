@@ -123,7 +123,7 @@ HCC2=HCC%>%
 # simplify Sex conditions
 
 HCC2[!is.na(sex.cond),`:=`(sex.cond=toupper(str_sub(sex.cond,1,1)))]
-HCC2[!is.na(sex.split),`:=`(sex.split=toupper(str_sub(sex.cond,1,1)))]
+HCC2[!is.na(sex.split),`:=`(sex.split=toupper(str_sub(sex.split,1,1)))]
 HCC2[,HCC:=ss(CC)]
 # convert dots to underlines
 
@@ -198,6 +198,9 @@ model_factors=function(Table,MODEL_YEAR=2022) {
     mutate(Metal=str_trim(str_remove_all(Metal,'Level')),year=as.integer(MODEL_YEAR))
   
   names(U)=c('Model','Variable','isUsed','Metal','Coeff','Year')
+  # Table 9 spells some interaction names in lower case (RXC_01_x_HCC001)
+  # while Tables 6-8 use upper case (RXC_01_X_HCC001); match on upper case
+  U$Variable=toupper(U$Variable)
   return(U)
 }
 
@@ -231,9 +234,32 @@ ScoreModel=function(LongForm,MF) {
 }
 Metals=c("Catastrophic", "Bronze", "Silver", "Gold", "Platinum") # put in 
 
-## HCPCS Drug Codes
+## Prescription drug categories (RXC)
+## Table 10a maps pharmacy NDC codes, Table 10b maps medical-claim HCPCS
+## codes, to the drug categories RXC_01 ... RXC_10
 
-HCPCS_CODES=read_excel(fn,sheet='Table 10b', skip=3, 
-               col_names=c('RXC','RXC_LABEL','HCPCS'),
-               col_types=c('text','text','text')) %>% data.table
-setkey(HCPCS_CODES,HCPCS)
+rxc_name=function(rxc) sprintf('RXC_%02d',as.integer(rxc))
+
+rxc_crosswalk=function(sheet,code_col) {
+  X=read_excel(fn,sheet=sheet,skip=3,col_types='text') %>% data.table
+  setnames(X,c('RXC','RXC_LABEL','CODE'))
+  X=X[str_detect(RXC,'^\\d+$') & !is.na(CODE)]  # drop the notes under the table
+  X[,RXC:=rxc_name(RXC)]
+  setnames(X,'CODE',code_col)
+  setkeyv(X,code_col)
+  return(X)
+}
+
+HCPCS_CODES=rxc_crosswalk('Table 10b','HCPCS')
+NDC_CODES=rxc_crosswalk('Table 10a','NDC')
+
+## Table 11: drug category hierarchies, same idea as Table 4
+
+RXCSetToZero=read_excel(fn,sheet='Table 11',skip=3,
+                        col_names=c('RXC','SetZero','label'),col_types='text') %>%
+  data.table
+RXCSetToZero=RXCSetToZero[str_detect(RXC,'^\\d+$') & !is.na(SetZero)]
+RXCSetToZero=RXCSetToZero[,.(set_zero=str_trim(unlist(str_split(SetZero,',')))),by=RXC]
+RXCSetToZero=RXCSetToZero[,.(HCC=rxc_name(RXC),set_zero=rxc_name(set_zero))]
+
+RXCvars=rxc_name(1:10)
