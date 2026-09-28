@@ -226,3 +226,11 @@ Server.
 ## License
 
 See `LICENSE`.
+
+## Parallels with ADaM and SDTM programming in R
+
+HCCR faces the same challenges as building CDISC datasets in R:
+
+- **Spec-driven, SAS-first rules.** The logic lives in a spreadsheet (the CMS DIY tables, or the SDTM and ADaM specs) that was written with SAS in mind. The `if/then` rules have to be translated into R exactly.
+- **Familiar derivations.** Codes are mapped through controlled crosswalks, flags are derived, the most severe record wins, and data moves between one row per subject (like ADSL) and long form (like BDS).
+- **Traceability across versions.** Each value must trace back to a row in the spec and match a SAS reference. The code also has to keep working when the spec is updated each year.
