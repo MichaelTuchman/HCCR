@@ -4,8 +4,9 @@
 ## with actual data.  
 ##
 ## Dependencies: 
-##  assign_hcc (assign_hcc.R)
-##  widenfb    (assign_hcc.R)
+##  assign_hcc (apply_hcc.R)
+##  widenfb    (apply_hcc.R)
+##  apply_hierarchy, assign_rxc (apply_hcc.R)
 ##  more_vars  (interactions.R)
 ##  AgeSexModel(AgeSexFactors.R)
 ##
@@ -54,7 +55,21 @@ Scored_DM=merge(Scored_DM,ASB,by='Variable')
 #############################################################
 
 AHCCf=assign_hcc(HCC2)  # this will be our exported function
-STEP2=AHCCf(D3) 
+HIERf=apply_hierarchy(SetToZero)    # Table 4
+STEP2=AHCCf(D3) %>% HIERf
+
+#############################################################
+## Assign drug categories (RXC) from HCPCS codes on medical
+## claims. Pharmacy NDC codes work the same way with
+## assign_rxc(NDC_CODES) once the client data has them.
+#############################################################
+
+RXCf=assign_rxc(HCPCS_CODES)
+RXHIERf=apply_hierarchy(RXCSetToZero)  # Table 11
+STEP2RX=RXCf(HCPCS) %>% RXHIERf
+STEP2RX=merge(STEP2RX,DM2[,.(pat_id,pat_age,pat_gender)],by='pat_id')
+
+STEP2=bind_rows(STEP2,STEP2RX[,.(pat_id,pat_age,pat_gender,HCC)])
 
 #############################################################
 ## Add Model Variable based on
@@ -76,7 +91,7 @@ STEP2A=merge(STEP2A,AgeSexBands[,.(AgeBAND=Variable,Model)],by='AgeBAND')
 # rpt=function(DT) {DT[,.(pat_id,Model,AgeBAND,pat_gender,AGE_LAST,HCC)][order(pat_id)]}
 # f= line should go in a previous file
 
-f=widenfb(HCC2) # all these function builders must take spreadsheet tables as arguments
+f=widenfb(c(HCC2$HCC,RXCvars)) # all these function builders must take spreadsheet tables as arguments
 STEP3=f(STEP2A)
 
 ## note that AGE0_MALE and AGE1_MALE act like both rows and columns
@@ -183,7 +198,7 @@ dup_resolve=STEP8[dups][,head(.SD,1),by=pat_id] # get itms in the original data 
 STEP8=STEP8[!dups] # remove dups
 
 Answer=bind_rows(STEP8,dup_resolve %>% select(-N)) # put them back bu tonly 1
-write_csv(Answer,'RiskScoresFinal.RData')
+write_csv(Answer,'RiskScoresFinal.csv')
 
 cleanup=function(){
 rm(list =ls(pattern='STEP'))
