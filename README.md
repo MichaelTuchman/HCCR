@@ -293,6 +293,11 @@ hierarchies, the age and sex filters, and the drug variables.
 
 These are what a reader would trip over when running the pipeline today:
 
+- **Validation status.** The pipeline has been run only against the CY2022
+  workbook, and only on a small hand-built synthetic data set
+  (`tests/run_synthetic.R`). Its scores have not been compared with CMS's
+  official software, and no other model year has been run, so the
+  "any model year" support in `config.yaml` is by design, not by test.
 - **Database config is centralized but not re-verified.** `readClientData.R`
   now reads its server address, database/table/column names, and claims
   lookback window from `config.yaml` instead of having them hard-coded, but
