@@ -1,5 +1,18 @@
 # HCCR: a health risk score engine in R
 
+> **Project status: reference implementation / portfolio example.**
+> Starting with benefit year 2026, CMS publishes its own official Python
+> software for the HHS-HCC model (replacing the older SAS software), along
+> with the yearly DIY tables workbook. For production scoring, use CMS's
+> software: it is the authoritative implementation. HCCR remains here as a
+> worked example of what can be built in R: compiling a published workbook
+> into scoring code, a config-driven design that accepts any model year, and
+> a synthetic-data test harness. It is not maintained to track CMS releases,
+> and the work needed to do so (new tables such as 10c/10d and 13, database
+> wiring for a real client) is deliberately out of scope. A natural use for
+> it is as an independent cross-check: score the same patients here and in
+> CMS's software and compare. See [Project status](#project-status).
+
 ## What problem this solves
 
 Health insurers and the organizations that share financial risk with them
@@ -18,8 +31,9 @@ the **HHS-HCC model**. HCC stands for *Hierarchical Condition Category*: it
 turns thousands of individual diagnosis codes into more than 100 condition groups
 ("Diabetes with chronic complications", "Heart failure", ...), each with a
 price tag. The recipe is published every year as an Excel workbook, the
-"DIY (Do It Yourself) tables". The official reference implementation is
-written in SAS, a commercial statistics language.
+"DIY (Do It Yourself) tables". When this project was written, the official
+reference implementation was in SAS, a commercial statistics language; CMS
+now publishes Python software instead (see the status note above).
 
 **HCCR re-implements that recipe in R.** Rather than hand-typing hundreds of
 rules and coefficients each year, it reads the published workbook and
@@ -67,6 +81,74 @@ HCCR currently reads the ones marked **used**.
 | Table 10a / 10b | Prescription drug → drug category crosswalks (NDC and HCPCS codes) | **used** (10a needs pharmacy claims, see Known gaps) |
 | Table 11 | Drug-category hierarchies | **used** |
 | Table 12 | Conditions excluded from each model | no |
+
+## Configuration
+
+The things that change from year to year, client to client, or
+deployment to deployment live in `config.yaml`, loaded by `config.R`
+(sourced automatically by `Model_Inputs.R`):
+
+- `model.year` and `model.workbook.path` - which benefit year and which
+  workbook file to read.
+- `model.workbook.sheets` / `model.workbook.header_skip` - the tab name
+  and header-row offset for each table HCCR reads, in case a future
+  workbook renames or reshuffles one.
+- `model.metal_tiers` - the plan tiers Table 9 publishes a coefficient
+  column for.
+- `output.risk_scores_csv` - where `score_model.R` writes its output.
+- `database.*` - the SQL Server address, database name, table names,
+  column names, and claims lookback window `readClientData.R` queries.
+  This section only centralizes what was previously hard-coded in that
+  file; it doesn't add new database functionality (see Known gaps).
+
+To point the pipeline at a different config file without editing
+`config.yaml` in place, set `options(hccr.config_path = 'config-2023.yaml')`
+before sourcing `Model_Inputs.R`.
+
+## Updating to a new model year
+
+CMS publishes a new "DIY tables" workbook (and a matching "DIY
+instructions" PDF) for each benefit year on cms.gov, usually under
+`cms.gov/files/document/cy<YYYY>-diy-...`, sometimes with a mid-year
+corrected re-release (the file names carry a revision date, so a given
+year may have more than one, e.g. `CY2022 DIY tables 06.30.2022.xlsx`
+alongside a later-corrected version). There is no fixed URL pattern
+reliable enough to script a download from year to year, so this stays a
+manual step:
+
+1. Download the new year's `CY<YYYY> DIY tables ....xlsx` workbook from
+   CMS and put it in the repo (or anywhere on disk).
+2. In `config.yaml`, set `model.year` to the new year and
+   `model.workbook.path` to the new file's path.
+3. Open the new workbook and check it against `model.workbook.sheets`
+   and `model.workbook.header_skip`. CMS has kept the table numbering
+   (Table 1 - Table 12, tab names literally "Table 3", "Table 9", etc.)
+   and the header-row offsets stable across the years checked while
+   building this, but a workbook is a hand-maintained document - if a
+   table reads back empty or misaligned, this is the first place to
+   look.
+4. Watch for a table CMS has added for that year. CY2025, for example,
+   added **Table 13 (CSR Indicators)**; HCCR does not read it (cost-
+   sharing adjustment is a known gap below regardless of year). A new
+   model year may add a similarly new table that's worth a look even if
+   HCCR doesn't act on it yet.
+5. Note the model *version* (CMS's HCC classification version, e.g.
+   V05/V07/V08) printed in the DIY instructions for that year. HCCR
+   doesn't need to know the version number itself - it just reads
+   whatever is in the tables - but a version change is usually where
+   HCC definitions, not just coefficients, change, so it's worth reading
+   that year's instructions PDF for anything structurally different.
+6. Re-run `Rscript tests/run_synthetic.R` to confirm the new workbook
+   loads and scores the synthetic patients without error before pointing
+   the pipeline at real client data.
+
+One more thing worth flagging for future years: CMS's CY2026 DIY
+instructions announce that the **reference software is being phased
+from SAS to Python**. That's the software CMS itself publishes
+alongside the tables, not HCCR, but it's a sign the tables' format or
+publication process could change more than usual around that year - the
+steps above (especially #3 and #4) are exactly what would need
+rechecking.
 
 ## How the code is organised
 
@@ -125,19 +207,15 @@ flowchart TD
   LD["leaking_diagnosis.R<br/>fuzzy_merge()"]
   PCA["pca.R<br/>procedure code → section"]
   RDS[["MappingTableForPCA.RDS<br/>DataForPCA.RDS"]]
-  PCA2["pca2.R<br/>principal components by provider"]
   DPH["DP_Hardcodes.R<br/>same mapping, 639 hard-coded ranges"]
-  PD["please_determine.R<br/>unfinished fragment"]
   CPUR["cpur.R<br/>exploratory claims summary"]
 
   SQL --> PCA
   RF --> PCA
   LD --> PCA
   PCA --> RDS
-  PCA -- "DPS" --> PCA2
   PCA -. "alternative to" .- DPH
   SQL --> CPUR
-  SQL --> PD
 ```
 
 ### Run order for the risk score
@@ -165,23 +243,21 @@ hierarchies, the age and sex filters, and the drug variables.
 
 | File | Reads | Produces | What it does |
 |---|---|---|---|
-| `Model_Inputs.R` | The DIY workbook (tabs 3, 4, 5, 6, 7, 8, 9, 10b) | `HCC2` (diagnosis → HCC), `SetToZero` (hierarchies), `AgeSexBands`, `AllAges` (if/then rules), `ModelFactors` / `MF_Wide` (coefficients), `Metals`, `HCPCS_CODES`; helper functions `ss()`, `setterhl()`, `ScoreModel()` | Loads every table the model needs and tidies it. `setterhl()` is the core trick: it takes a table of R statements stored as text and turns them into one callable R function. |
+| `config.yaml` | - | - | Model year, workbook path/sheet names/header-row offsets, metal tiers, output path, and database server/table/column names. See "Configuration" above. |
+| `config.R` | `config.yaml` | `CONFIG`, `hccr_*()` helper functions | Loads the config file once; sourced automatically by `Model_Inputs.R` (and `readClientData.R`). |
+| `Model_Inputs.R` | The DIY workbook (tabs 3, 4, 5, 6, 7, 8, 9, 10b), via `config.yaml` | `HCC2` (diagnosis → HCC), `SetToZero` (hierarchies), `AgeSexBands`, `AllAges` (if/then rules), `ModelFactors` / `MF_Wide` (coefficients), `Metals`, `HCPCS_CODES`; helper functions `ss()`, `setterhl()`, `ScoreModel()` | Loads every table the model needs and tidies it. `setterhl()` is the core trick: it takes a table of R statements stored as text and turns them into one callable R function. |
 | `AgeSexfactors.R` | `AgeSexBands`, `AllAges`, `setterhl()` | `AgeSexModel()` | Turns each age/sex band (e.g. `FAGE_LAST_45_49`) into a rule like `pat_gender=='F' & pat_age>=45 & pat_age<=49`, adds the enrollment-duration rule, and compiles them into `AgeSexModel()`. Also builds SQL `CASE WHEN` text (`sql1`, `sql2`) that is not used yet. |
 | `interactions.R` | `AllAges`, `setterhl()` | `more_vars()` | Translates the SAS `if … then do; …; end;` rules from Tables 6 to 8 into R `data.table` assignments and compiles one function per model (Adult, Child, Infant); `more_vars()` applies each patient's own model. This is the "SAS to R compiler". |
 | `apply_hcc.R` | `HCC2`, `ss()` | `assign_hcc()`, `apply_hierarchy()`, `assign_rxc()`, `widenfb()`, `HCCvars` | `assign_hcc()` joins a patient's diagnoses to condition categories and drops those that fail the age or sex conditions and splits. `apply_hierarchy()` drops the milder categories (Tables 4 and 11). `assign_rxc()` maps drug codes to drug categories. `widenfb()` pivots to one row per patient with one 0/1 column per category, guaranteeing every category column exists. |
-| `readClientData.R` | SQL Server `ModelDevelopment` database: `eligibility`, `claims_20210601_to_20220531` | `D3` (patient × diagnosis), `DM2` (patient age, sex, months enrolled), `HCPCS` (patient × drug/procedure code) | Pulls one year of claims (June 2021 to May 2022) and enrollment for the client. |
+| `readClientData.R` | SQL Server database/tables named in `config.yaml`'s `database:` section (defaults to `ModelDevelopment`: `eligibility`, `claims_20210601_to_20220531`) | `D3` (patient × diagnosis), `DM2` (patient age, sex, months enrolled), `HCPCS` (patient × drug/procedure code) | Pulls one benefit year of claims and enrollment for the client, over the window in `config.yaml`'s `database.period`. |
 | `score_model.R` | Everything above | `STEP2` … `STEP8`, `Answer`; writes `RiskScoresFinal.csv` | Runs the pipeline: age/sex bands → HCC assignment → hierarchies → drug categories → wide table → combination flags → long table → join coefficients → sum per patient per metal tier. `STEP7` shows each patient's score broken down by variable. |
 | `byPerson.R` | `STEP3`, `STEP8`, `Answer`, `HCCvars` | A histogram and summary of Silver scores | Quick look at the distribution of results. |
 | `slices.R` | `Answer`, `STEP6`, `ModelFactors`, `HCC_HELPER` | `slicer()`, `j()` | Pulls the patients in a score range and lists the conditions driving their scores. `HCC_HELPER` is not defined anywhere in the repo. |
 
-### Older versions and scratch work (not part of the pipeline)
+### Supporting files (not part of the pipeline)
 
 | File | Status |
 |---|---|
-| `readEnrollment.R` | Earlier copy of `readClientData.R`. Uses `PERIOD_END_DT` before defining it. |
-| `ageSexRisk.R` | Earlier approach to age/sex scoring. Depends on `AMTS` and `TBL1`, which no longer exist. |
-| `age_sex_testing.R` | Scratch copy of `AgeSexfactors.R`. Also defines `remove_subordinate_hcc()`, an early hierarchy attempt replaced by `apply_hierarchy()`. |
-| `so_r_example.R` | Unrelated parallel-computing snippet (has syntax errors). |
 | `tests/` | `synthetic_data.R` stands in for `readClientData.R` with six made-up patients; `run_synthetic.R` runs the pipeline on them. |
 | `sample.dat` | A few lines copied from Tables 6 and 7, showing the SAS rule syntax. |
 | `ClaimsAS.RData` | Saved R workspace (about 5 MB unpacked), presumably sample claims or age/sex data; no script loads it. |
@@ -193,17 +269,37 @@ hierarchies, the age and sex filters, and the drug variables.
 | `leaking_diagnosis.R` | Tables passed in | `leaking()`, `fuzzy_merge()` | Helpers. `fuzzy_merge()` matches a code to the range it falls in and is needed by `pca.R`. The last line runs a debug call on data that must already exist. |
 | `pca.R` | SQL Server claims, `ReferenceData.proc_cd_section`, `ReferenceData.ICD`, `range_fix.csv` | `DPS` (claims with a procedure section), `PR`; writes `MappingTableForPCA.RDS`, `DataForPCA.RDS` | Groups each billed procedure code into a named section (for example "Hearing Aids") so providers can be compared by what they bill. |
 | `DP_Hardcodes.R` | `DP` | `DP` with `section`, `proc_grp` | The same grouping as `pca.R`, written as 639 hard-coded range assignments. |
-| `pca2.R` | `DPS` | Principal components and clustering of providers | Exploratory; references objects (`A`, `AA`, `lbl`) that are not defined. |
-| `please_determine.R` | SQL Server, `missing_codes_fix.csv` | `L_PC`, `R1` | Unfinished fragment of the section mapping. |
 | `cpur.R` | SQL Server claims and `ReferenceData.ICD` | Cost summaries by procedure and place of service | Exploratory analysis of primary care usage. |
+
+## Project status
+
+- **Why this exists.** HCCR was built against the CY2022 workbook, when the
+  only official implementation was SAS. It re-implements the recipe in R and
+  was then generalized (see "Configuration") to accept any model year.
+- **Why it is not needed for production.** CMS's Python software, published
+  from benefit year 2026, supersedes the SAS reference and is the
+  authoritative implementation. I have not audited it against HCCR; any
+  claim that the two agree for a given year needs to be checked with the
+  test harness below.
+- **What was deliberately left undone.** Reading Tables 10c/10d (Affiliated
+  Cost Factors) and 13 (CSR indicators), applying the cost-sharing
+  adjustment, pulling pharmacy claims, and verifying `readClientData.R`
+  against a real client database. See "Known gaps".
+- **Still useful for.** Learning how the model works, demonstrating the
+  workbook-to-code approach, and cross-checking CMS's software on shared
+  test patients (`tests/run_synthetic.R`).
 
 ## Known gaps
 
 These are what a reader would trip over when running the pipeline today:
 
-- **Tied to one client's database.** `readClientData.R` connects to a specific
-  SQL Server address and table names, with the date range written into the
-  code.
+- **Database config is centralized but not re-verified.** `readClientData.R`
+  now reads its server address, database/table/column names, and claims
+  lookback window from `config.yaml` instead of having them hard-coded, but
+  the values there are still this one client's: a new client's database
+  needs someone to confirm table and column names actually match
+  `config.yaml`'s `database:` section before running it (see the project
+  to-do list).
 - **Pharmacy claims.** Drug categories come from HCPCS codes on medical
   claims. Table 10a (pharmacy NDC codes) is loaded as `NDC_CODES` and
   `assign_rxc(NDC_CODES)` will use it, but `readClientData.R` does not pull
@@ -214,14 +310,21 @@ These are what a reader would trip over when running the pipeline today:
 - **Cost-sharing adjustment.** The `CSR_ADJUSTED_SCORE_*` multipliers in
   Tables 6 to 8 are not applied, and `Answer` reports all five metal tiers
   rather than picking the patient's own plan.
-- **Model year.** The workbook file name and year 2022 are fixed in
-  `Model_Inputs.R`.
+- **AGE0_MALE / AGE1_MALE hard-code in `score_model.R`.** Flagged in that
+  file's own comments: these two age/sex flags are referenced by literal
+  name rather than read from `AgeSexBands`, so a model that scored
+  additional infant-age/sex categories would need code changes, not just a
+  new workbook.
+- **New tables aren't picked up automatically.** A new model year's workbook
+  can add a table CMS didn't publish before (Table 13, CSR Indicators, was
+  new for CY2025); `config.yaml` has a place to list it, but reading and
+  using it still needs new code - see "Updating to a new model year" above.
 
 ## Requirements
 
 R with `tidyverse`, `data.table`, `readxl`, `lubridate`, `rlang`, `knitr`,
-and, for the database scripts, `odbc`, `RODBC` and access to the client's SQL
-Server.
+`yaml`, and, for the database scripts, `odbc`, `RODBC` and access to the
+client's SQL Server.
 
 ## License
 

@@ -12,6 +12,9 @@ require(data.table)
 require(readxl)
 require(readr)
 require(lubridate)
+require(yaml)
+
+source('config.R') # loads CONFIG + hccr_*() helpers from config.yaml
 
 # date  utility and helper functions
 
@@ -20,11 +23,13 @@ count_na=function(v) sum(is.na(v))
 checkNA=function(DT) DT[,lapply(.SD,count_na)]
 
 
-fp=function(model.year) {
- file.path(sprintf('CY%d DIY tables 06.30.%d.xlsx',model.year,model.year))
-}
+## Model year and workbook path now come from config.yaml (model.year,
+## model.workbook.path) instead of being hard-coded here. To move to a
+## new benefit year: download that year's "DIY tables" workbook from CMS
+## and point config.yaml at it - see README "Updating to a new model year".
 
-fn=fp(2022)
+MODEL_YEAR = hccr_model_year()
+fn = hccr_workbook_path()
 
 ## hcc_group : Data structures to write code for computing the 
 ## grouping variables
@@ -48,10 +53,10 @@ ss = function(hcc_code) {
 }
 
 ## HCC Grouping variables
-extra_vars=function(SheetNoC) {
+extra_vars=function(SheetNoC,skip=4) {
   read_excel(fn,
              sheet = SheetNoC,
-             col_names=c('Model','Variable','Description','Used','Formula'),skip=4) %>%
+             col_names=c('Model','Variable','Description','Used','Formula'),skip=skip) %>%
     filter(!is.na(Formula))
 }
 
@@ -94,9 +99,9 @@ fill_in_blank_rows=function(formula_table,partial_column='Model') {
 
 # do the same for child and infant classes
 
-Adult=extra_vars('Table 6')
-Child=extra_vars('Table 7')
-Infant=extra_vars('Table 8')
+Adult=extra_vars(hccr_sheet('adult_variables'),hccr_skip('adult_variables',4))
+Child=extra_vars(hccr_sheet('child_variables'),hccr_skip('child_variables',4))
+Infant=extra_vars(hccr_sheet('infant_variables'),hccr_skip('infant_variables',4))
 
 AllAges=rbind(Adult,Child,Infant) %>% fill_in_blank_rows
 rm(list=c('Adult','Child','Infant')) # now redundant
@@ -108,17 +113,24 @@ rm(list=c('Adult','Child','Infant')) # now redundant
 
 dash=function(str) str_replace_all(str,'\\.','_')
 
-HCC=read_excel(fn,sheet='Table 3', skip=4, 
-                         col_names=c('obs','ICD10','icd10.label','valid.2021','valid.2022','age.cond','sex.cond','age.split','sex.split','cc.1','cc.2','cc.3','comment'),
+## Table 3 carries two validity flags per row: the prior benefit year and
+## the current one (headed e.g. "valid.2021"/"valid.2022" in the actual
+## workbook). We read them positionally and label them valid.prior /
+## valid.current ourselves, so this doesn't need to change from year to
+## year - only the *position* of these two columns would (see
+## config.yaml's note on Table 3).
+
+HCC=read_excel(fn,sheet=hccr_sheet('icd10_crosswalk'), skip=hccr_skip('icd10_crosswalk',4),
+                         col_names=c('obs','ICD10','icd10.label','valid.prior','valid.current','age.cond','sex.cond','age.split','sex.split','cc.1','cc.2','cc.3','comment'),
                          col_types=c(rep('text',9),rep('numeric',3),'text'))
 
 
 HCC2=HCC%>%
-# mutate(across(starts_with('cc'),dash)) %>% 
-  pivot_longer(starts_with('cc'),names_to=NULL,values_to = 'CC') %>% 
+# mutate(across(starts_with('cc'),dash)) %>%
+  pivot_longer(starts_with('cc'),names_to=NULL,values_to = 'CC') %>%
   filter(!is.na(CC)) %>%
-  filter(valid.2022=='Y') %>%
-  select(-valid.2021,-obs) %>% mutate(CC=dash(as.character(CC))) %>% data.table
+  filter(valid.current=='Y') %>%
+  select(-valid.prior,-obs) %>% mutate(CC=dash(as.character(CC))) %>% data.table
 
 # simplify Sex conditions
 
@@ -127,8 +139,8 @@ HCC2[!is.na(sex.split),`:=`(sex.split=toupper(str_sub(sex.split,1,1)))]
 HCC2[,HCC:=ss(CC)]
 # convert dots to underlines
 
-SetToZeroRAW=read_excel(fn,skip=3,
-                     sheet = 'Table 4',col_names = c('Obs','HCC','SetZero','label')) %>% data.table
+SetToZeroRAW=read_excel(fn,skip=hccr_skip('hierarchies',3),
+                     sheet = hccr_sheet('hierarchies'),col_names = c('Obs','HCC','SetZero','label')) %>% data.table
 
 SetToZero=SetToZeroRAW %>%
        select(-Obs) %>%
@@ -153,7 +165,7 @@ SetToZero=SetToZero[,lapply(.SD,ss)][order(HCC)]
 
 ## age sex bands and definitions
 
-AgeSexBands = read_excel(fn,sheet='Table 5',skip=2,col_types = rep('text',5)) %>% 
+AgeSexBands = read_excel(fn,sheet=hccr_sheet('age_sex_bands'),skip=hccr_skip('age_sex_bands',2),col_types = rep('text',5)) %>%
   filter(!is.na(Model)) # remove blank rows
 
 agest_stmt <- function(variable) {
@@ -183,20 +195,20 @@ score_model = function(Model_factor_table,by='pat_id') {
 
 ## model_factors table
 
-model_factors=function(Table,MODEL_YEAR=2022) {
-  if (is.integer(Table)) {
-    tbl=sprintf("Table %d",Table)
+model_factors=function(Table,skip=2,MODEL_YEAR=hccr_model_year()) {
+  if (is.numeric(Table)) {
+    tbl=sprintf("Table %d",as.integer(Table))
   }
   else {
-    tbl=paste('Table',Table,sep=' ')
+    tbl=Table
   }
-  
-  U= read_excel(fn,sheet=tbl,skip=2,col_types = rep('text',8)) %>%
-    filter(!is.na(Model)) %>% # remove blank rows 
+
+  U= read_excel(fn,sheet=tbl,skip=skip,col_types = rep('text',8)) %>%
+    filter(!is.na(Model)) %>% # remove blank rows
     pivot_longer(cols=ends_with('Level'),names_to = 'Metal',values_to = 'coeff') %>%
     mutate(coeff=round(as.numeric(coeff),4)) %>%
     mutate(Metal=str_trim(str_remove_all(Metal,'Level')),year=as.integer(MODEL_YEAR))
-  
+
   names(U)=c('Model','Variable','isUsed','Metal','Coeff','Year')
   # Table 9 spells some interaction names in lower case (RXC_01_x_HCC001)
   # while Tables 6-8 use upper case (RXC_01_X_HCC001); match on upper case
@@ -204,7 +216,7 @@ model_factors=function(Table,MODEL_YEAR=2022) {
   return(U)
 }
 
-ModelFactors = data.table(model_factors(9))
+ModelFactors = data.table(model_factors(hccr_sheet('model_factors'),hccr_skip('model_factors',2)))
 
 ELIG=ModelFactors[Variable %like% 'ED_']
 
@@ -232,7 +244,7 @@ MF_Wide=ModelFactors %>% dcast.data.table(Model+Variable+isUsed+Year~Metal,value
 ScoreModel=function(LongForm,MF) {
   merge(LongForm,MF,by=c('Variable','Model'))[value!=0]
 }
-Metals=c("Catastrophic", "Bronze", "Silver", "Gold", "Platinum") # put in 
+Metals=hccr_metal_tiers() # from config.yaml model.metal_tiers
 
 ## Prescription drug categories (RXC)
 ## Table 10a maps pharmacy NDC codes, Table 10b maps medical-claim HCPCS
@@ -240,8 +252,8 @@ Metals=c("Catastrophic", "Bronze", "Silver", "Gold", "Platinum") # put in
 
 rxc_name=function(rxc) sprintf('RXC_%02d',as.integer(rxc))
 
-rxc_crosswalk=function(sheet,code_col) {
-  X=read_excel(fn,sheet=sheet,skip=3,col_types='text') %>% data.table
+rxc_crosswalk=function(sheet,code_col,skip=3) {
+  X=read_excel(fn,sheet=sheet,skip=skip,col_types='text') %>% data.table
   setnames(X,c('RXC','RXC_LABEL','CODE'))
   X=X[str_detect(RXC,'^\\d+$') & !is.na(CODE)]  # drop the notes under the table
   X[,RXC:=rxc_name(RXC)]
@@ -250,12 +262,12 @@ rxc_crosswalk=function(sheet,code_col) {
   return(X)
 }
 
-HCPCS_CODES=rxc_crosswalk('Table 10b','HCPCS')
-NDC_CODES=rxc_crosswalk('Table 10a','NDC')
+HCPCS_CODES=rxc_crosswalk(hccr_sheet('rxc_hcpcs_crosswalk'),'HCPCS',hccr_skip('rxc_hcpcs_crosswalk',3))
+NDC_CODES=rxc_crosswalk(hccr_sheet('rxc_ndc_crosswalk'),'NDC',hccr_skip('rxc_ndc_crosswalk',3))
 
 ## Table 11: drug category hierarchies, same idea as Table 4
 
-RXCSetToZero=read_excel(fn,sheet='Table 11',skip=3,
+RXCSetToZero=read_excel(fn,sheet=hccr_sheet('rxc_hierarchies'),skip=hccr_skip('rxc_hierarchies',3),
                         col_names=c('RXC','SetZero','label'),col_types='text') %>%
   data.table
 RXCSetToZero=RXCSetToZero[str_detect(RXC,'^\\d+$') & !is.na(SetZero)]
