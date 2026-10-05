@@ -142,12 +142,12 @@ HCC2[,HCC:=ss(CC)]
 SetToZeroRAW=read_excel(fn,skip=hccr_skip('hierarchies',3),
                      sheet = hccr_sheet('hierarchies'),col_names = c('Obs','HCC','SetZero','label')) %>% data.table
 
-SetToZero=SetToZeroRAW %>%
-       select(-Obs) %>%
-       separate(SetZero,sep=',',into=paste('X',1:8,sep='')) %>%
-       mutate(across(.fns=~(str_trim(.x)))) %>%
-       pivot_longer(starts_with('X')) %>% mutate(label=NULL) %>%
-       rename(set_zero=value) %>% filter(!is.na(set_zero)) %>% mutate(name=NULL)
+## One row per (HCC, set_zero) pair. Splitting with str_split rather than
+## separate(into=X1..X8) means a model year whose Table 4 lists more than 8
+## lower-ranked categories on one row is not silently truncated.
+SetToZero=SetToZeroRAW[!is.na(SetZero),
+                       .(set_zero=str_trim(unlist(str_split(SetZero,',')))),
+                       by=.(HCC=str_trim(as.character(HCC)))][set_zero!='']
 
 
 SetToZero = SetToZero %>% data.table
