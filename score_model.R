@@ -198,7 +198,7 @@ dup_resolve=STEP8[dups][,head(.SD,1),by=pat_id] # get itms in the original data 
 STEP8=STEP8[!dups] # remove dups
 
 Answer=bind_rows(STEP8,dup_resolve %>% select(-N)) # put them back bu tonly 1
-write_csv(Answer,'RiskScoresFinal.csv')
+write_csv(Answer,hccr_output_csv()) # path from config.yaml output.risk_scores_csv
 
 cleanup=function(){
 rm(list =ls(pattern='STEP'))

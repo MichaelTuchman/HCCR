@@ -1,6 +1,10 @@
 ## tests/run_synthetic.R
 ## Run the whole scoring pipeline on tests/synthetic_data.R.
 ## From the repo root:  Rscript tests/run_synthetic.R
+##
+## Model_Inputs.R sources config.R and reads config.yaml's model.year /
+## model.workbook.path, so this runs against whichever benefit year's
+## workbook config.yaml currently points at - no database needed.
 
 source('Model_Inputs.R')
 source('AgeSexfactors.R')

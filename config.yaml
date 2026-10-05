@@ -1,0 +1,118 @@
+# HCCR configuration
+#
+# Everything here used to be hard-coded (a filename with the year baked
+# in, a "valid.2022" column name, a handful of row-skip offsets, the SQL
+# Server address). Centralizing it here is what lets the pipeline run
+# against a different benefit year, or a different client database,
+# without touching the R code.
+#
+# See README.md -> "Updating to a new model year" before editing
+# `model:`, and "Database configuration" before editing `database:`.
+
+model:
+  # The benefit year this config describes. Used to find the "valid.<year>"
+  # column in Table 3 (see valid_year_column below) and recorded alongside
+  # every coefficient in Table 9's output (model_factors()'s Year column).
+  year: 2022
+
+  workbook:
+    # Path to that year's published "DIY tables" workbook. CMS does not use
+    # a fixed file name across years (the trailing date changes, and some
+    # years ship corrected re-releases), so this is a literal path rather
+    # than something derived from `year`.
+    path: "CY2022 DIY tables 06.30.2022.xlsx"
+
+    # Tab names inside the workbook. CMS has kept these as plain
+    # "Table <n>" since at least CY2018; listed here (rather than
+    # hard-coded) in case a future year renames or renumbers one.
+    sheets:
+      model_membership: "Table 1"        # not read yet (model assignment is hard-coded)
+      cpt_hcpcs_included_list: "Table 2" # not read yet
+      icd10_crosswalk: "Table 3"
+      hierarchies: "Table 4"
+      age_sex_bands: "Table 5"
+      adult_variables: "Table 6"
+      child_variables: "Table 7"
+      infant_variables: "Table 8"
+      model_factors: "Table 9"
+      rxc_ndc_crosswalk: "Table 10a"
+      rxc_hcpcs_crosswalk: "Table 10b"
+      rxc_hierarchies: "Table 11"
+      exclusions: "Table 12"             # not read yet
+      # csr_indicators: "Table 13"       # new for CY2025; not read yet - see README known gaps
+
+    # Number of header/title rows to skip with readxl::read_excel(skip = ...)
+    # before each table's real column headers start. These have held
+    # steady across the years checked during this update, but a workbook
+    # is a hand-maintained document, so a new year is not guaranteed to
+    # match - if a table comes back empty or misaligned after switching
+    # years, this is the first thing to check against the actual file.
+    header_skip:
+      icd10_crosswalk: 4
+      hierarchies: 3
+      age_sex_bands: 2
+      adult_variables: 4
+      child_variables: 4
+      infant_variables: 4
+      model_factors: 2
+      rxc_ndc_crosswalk: 3
+      rxc_hcpcs_crosswalk: 3
+      rxc_hierarchies: 3
+
+    # Table 3 carries two "is this ICD-10 -> HCC mapping valid for benefit
+    # year X" flag columns per diagnosis row: one for the prior benefit
+    # year, one for the current one (named e.g. "valid.2021"/"valid.2022"
+    # in the actual spreadsheet header). Model_Inputs.R reads them
+    # positionally and labels them valid.prior/valid.current itself, so
+    # there is nothing to configure here - noted for when a future
+    # workbook's Table 3 adds, drops, or reorders these columns.
+
+  # Plan "metal" tiers that Table 9 publishes a coefficient column for.
+  # Stable since the model's inception, but broken out of the code in
+  # case a future year adds or renames a tier.
+  metal_tiers: ["Catastrophic", "Bronze", "Silver", "Gold", "Platinum"]
+
+output:
+  risk_scores_csv: "RiskScoresFinal.csv"
+
+# --------------------------------------------------------------------------
+# Database configuration (readClientData.R)
+#
+# This section only moves settings that were previously hard-coded into
+# one place; it does not add new database connectivity or change what
+# gets queried. Wiring readClientData.R to NEW tables/columns, or to a
+# different client's database, is tracked as its own to-do item - see the
+# project to-do list.
+# --------------------------------------------------------------------------
+database:
+  driver: "SQL Server"
+  server: "172.16.0.3"
+  database_name: "ModelDevelopment"
+  trusted_connection: true
+  timeout_ms: 5000
+
+  # The claims/eligibility lookback window used to pull and score this run.
+  period:
+    start_date: "2021-06-01"
+    end_date: "2022-05-31"
+
+  tables:
+    eligibility: "dbo.eligibility"
+    # Claims table names are literally suffixed with the date range in this
+    # client's database (see claims_20210601_to_20220531 below) - another
+    # reason this has to be config, not a constant.
+    claims: "dbo.claims_20210601_to_20220531"
+
+  columns:
+    eligibility:
+      member_id: "deid_mbr_id"
+      gender: "mbr_gender"
+      birth_date: "mbr_birth_dt"
+      coverage_start: "cov_start_dt"
+      coverage_end: "cov_end_dt"
+    claims:
+      patient_id: "deid_pat_id"
+      birth_date: "pat_birth_dt"
+      diagnosis_codes: ["diag_cd_1", "diag_cd_2", "diag_cd_3", "diag_cd_4", "diag_cd_5"]
+      procedure_code: "proc_cd"
+      procedure_code_type: "proc_cd_type"
