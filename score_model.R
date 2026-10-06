@@ -124,8 +124,14 @@ STEP3[,`:=`(AGE_LAST=pat_age,
 ## this assignment needs to be moved into the more_vars function
 
 
+## Rules in Tables 6-8 may test ENROLDURATION (CY2025's HCC_ED1..HCC_ED11:
+## enrollment duration for patients with at least one HCC), so it has to
+## be on the table the rules run against.
+STEP3=merge(STEP3,unique(DM2[,.(pat_id,ENROLDURATION)]),by='pat_id',all.x=TRUE)
+
 ## it is not necessary to remove NA at this point.
 STEP4 = more_vars(STEP3)
+STEP4[,ENROLDURATION:=NULL] # only needed by the rules; not a scored variable
 varnames=copy(names(STEP4))
 ids = c('pat_id','pat_age','pat_gender','AgeBAND','Model')
 measures=setdiff(varnames,ids)
