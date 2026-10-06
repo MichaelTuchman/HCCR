@@ -259,7 +259,7 @@ hierarchies, the age and sex filters, and the drug variables.
 | File | Status |
 |---|---|
 | `table3_reader.R` | Table 3 of the workbook | `read_icd10_crosswalk()` | Reads the ICD-10 crosswalk by matching column headers, not positions, because CMS changed the layout between years (13 columns in CY2022, 17 in CY2025). Stops with a message naming the missing column if a needed one is absent. |
-| `tests/` | `synthetic_data.R` stands in for `readClientData.R` with six made-up patients; `run_synthetic.R` runs the pipeline on them; `run_cy2025.R` and `config-cy2025.yaml` do the same against the CY2025 workbook (download it from CMS; it is not stored in the repo). |
+| `tests/` | `synthetic_data.R` stands in for `readClientData.R` with six made-up patients; `run_synthetic.R` runs the pipeline on them; `run_cy2025.R` and `config-cy2025.yaml` do the same against the CY2025 workbook (download it from CMS; it is not stored in the repo). `generate_synthetic.R` builds a larger made-up population (diagnoses sampled from Table 3; pharmacy fill histories sampled from Table 10a, plus everyday drugs the risk model ignores, such as statins and blood pressure drugs, using real NDC codes in `tests/data/background_ndcs.csv`, built from the FDA NDC Directory by `tests/data/build_background_ndcs.py`) and `run_broad.R` scores it and checks the assigned categories against an independently computed expectation: `Rscript tests/run_broad.R [patients] [seed]`. |
 | `sample.dat` | A few lines copied from Tables 6 and 7, showing the SAS rule syntax. |
 | `ClaimsAS.RData` | Saved R workspace (about 5 MB unpacked), presumably sample claims or age/sex data; no script loads it. |
 
@@ -295,12 +295,22 @@ hierarchies, the age and sex filters, and the drug variables.
 These are what a reader would trip over when running the pipeline today:
 
 - **Validation status.** The pipeline runs on the CY2022 and CY2025
-  workbooks, on a small hand-built synthetic data set
-  (`tests/run_synthetic.R` for CY2022; `tests/run_cy2025.R` for CY2025,
-  which also checks the HCC count and enrollment-duration variables CY2025
-  adds). CY2022 scores are unchanged by the CY2025 work. Neither year's
-  scores have been compared with CMS's official software, and no other
-  model year has been run.
+  workbooks. It is tested on a small hand-built data set
+  (`tests/run_synthetic.R`; `tests/run_cy2025.R` for CY2025, which also
+  checks the HCC count and enrollment-duration variables CY2025 adds) and
+  on a generated population of 2,000 patients (`tests/run_broad.R`), which
+  checks category assignment and hierarchies but not the scores
+  themselves. CY2022 scores are unchanged by the CY2025 work. Neither
+  year's scores have been compared with CMS's official software, and no
+  other model year has been run.
+- **Female infants are not scored.** The infant age/sex variables in the
+  workbook are `AGE0_MALE` and `AGE1_MALE` only, and a patient with no
+  age/sex row drops out of the scoring silently, so a female patient aged 0
+  or 1 gets no score at all. Found by `tests/run_broad.R`, which reports the
+  count and fails if anyone else goes unscored. Related to the
+  `AGE0_MALE`/`AGE1_MALE` hard-code below; whether those patients should
+  score from the severity variables alone needs checking against CMS's
+  documentation.
 - **Database config is centralized but not re-verified.** `readClientData.R`
   now reads its server address, database/table/column names, and claims
   lookback window from `config.yaml` instead of having them hard-coded, but
