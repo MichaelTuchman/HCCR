@@ -60,13 +60,16 @@ STEP2=AHCCf(D3) %>% HIERf
 
 #############################################################
 ## Assign drug categories (RXC) from HCPCS codes on medical
-## claims. Pharmacy NDC codes work the same way with
-## assign_rxc(NDC_CODES) once the client data has them.
+## claims and, when the data has an NDC table (pat_id, NDC), from
+## pharmacy fills.
 #############################################################
 
 RXCf=assign_rxc(HCPCS_CODES)
 RXHIERf=apply_hierarchy(RXCSetToZero)  # Table 11
-STEP2RX=RXCf(HCPCS) %>% RXHIERf
+NDCf=assign_rxc(NDC_CODES)
+RX_CODES=RXCf(HCPCS)
+if (exists('NDC')) RX_CODES=unique(rbind(RX_CODES,NDCf(NDC)))  # pharmacy fills, when the data has them
+STEP2RX=RX_CODES %>% RXHIERf
 STEP2RX=merge(STEP2RX,DM2[,.(pat_id,pat_age,pat_gender)],by='pat_id')
 
 STEP2=bind_rows(STEP2,STEP2RX[,.(pat_id,pat_age,pat_gender,HCC)])
