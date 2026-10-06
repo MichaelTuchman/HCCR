@@ -15,6 +15,7 @@ require(lubridate)
 require(yaml)
 
 source('config.R') # loads CONFIG + hccr_*() helpers from config.yaml
+source('table3_reader.R') # finds Table 3's columns by header, so layout changes between years don't break it
 
 # date  utility and helper functions
 
@@ -113,16 +114,13 @@ rm(list=c('Adult','Child','Infant')) # now redundant
 
 dash=function(str) str_replace_all(str,'\\.','_')
 
-## Table 3 carries two validity flags per row: the prior benefit year and
-## the current one (headed e.g. "valid.2021"/"valid.2022" in the actual
-## workbook). We read them positionally and label them valid.prior /
-## valid.current ourselves, so this doesn't need to change from year to
-## year - only the *position* of these two columns would (see
-## config.yaml's note on Table 3).
+## Table 3 (ICD-10 -> condition category). table3_reader.R finds each
+## column by its header text, so a year whose layout adds or reorders
+## columns (CY2025 has 17, CY2022 has 13) reads without edits here.
 
-HCC=read_excel(fn,sheet=hccr_sheet('icd10_crosswalk'), skip=hccr_skip('icd10_crosswalk',4),
-                         col_names=c('obs','ICD10','icd10.label','valid.prior','valid.current','age.cond','sex.cond','age.split','sex.split','cc.1','cc.2','cc.3','comment'),
-                         col_types=c(rep('text',9),rep('numeric',3),'text'))
+HCC=read_icd10_crosswalk(fn,sheet=hccr_sheet('icd10_crosswalk'),
+                         first_data_row=hccr_skip('icd10_crosswalk',4),
+                         model_year=MODEL_YEAR) %>% as_tibble
 
 
 HCC2=HCC%>%
@@ -130,7 +128,7 @@ HCC2=HCC%>%
   pivot_longer(starts_with('cc'),names_to=NULL,values_to = 'CC') %>%
   filter(!is.na(CC)) %>%
   filter(valid.current=='Y') %>%
-  select(-valid.prior,-obs) %>% mutate(CC=dash(as.character(CC))) %>% data.table
+  select(-obs) %>% mutate(CC=dash(as.character(CC))) %>% data.table
 
 # simplify Sex conditions
 

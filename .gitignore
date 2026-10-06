@@ -2,3 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
+RiskScoresFinal.csv
+# CMS workbooks used only by tests/run_cy2025.R; download from CMS (see tests/config-cy2025.yaml)
+cy2025-diy-tables-*.xlsx
