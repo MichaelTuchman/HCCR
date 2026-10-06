@@ -247,7 +247,7 @@ hierarchies, the age and sex filters, and the drug variables.
 | `config.R` | `config.yaml` | `CONFIG`, `hccr_*()` helper functions | Loads the config file once; sourced automatically by `Model_Inputs.R` (and `readClientData.R`). |
 | `Model_Inputs.R` | The DIY workbook (tabs 3, 4, 5, 6, 7, 8, 9, 10b), via `config.yaml` | `HCC2` (diagnosis → HCC), `SetToZero` (hierarchies), `AgeSexBands`, `AllAges` (if/then rules), `ModelFactors` / `MF_Wide` (coefficients), `Metals`, `HCPCS_CODES`; helper functions `ss()`, `setterhl()`, `ScoreModel()` | Loads every table the model needs and tidies it. `setterhl()` is the core trick: it takes a table of R statements stored as text and turns them into one callable R function. |
 | `AgeSexfactors.R` | `AgeSexBands`, `AllAges`, `setterhl()` | `AgeSexModel()` | Turns each age/sex band (e.g. `FAGE_LAST_45_49`) into a rule like `pat_gender=='F' & pat_age>=45 & pat_age<=49`, adds the enrollment-duration rule, and compiles them into `AgeSexModel()`. Also builds SQL `CASE WHEN` text (`sql1`, `sql2`) that is not used yet. |
-| `interactions.R` | `AllAges`, `setterhl()` | `more_vars()` | Translates the SAS `if … then do; …; end;` rules from Tables 6 to 8 into R `data.table` assignments and compiles one function per model (Adult, Child, Infant); `more_vars()` applies each patient's own model. This is the "SAS to R compiler". |
+| `interactions.R` | `AllAges`, `setterhl()` | `more_vars()` | Translates the SAS `if … then do; …; end;` rules from Tables 6 to 8 into R `data.table` assignments and compiles one function per model (Adult, Child, Infant); `more_vars()` applies each patient's own model. Also compiles `HCC_CNT = SUM(HHS_HCC*, G*)` count definitions (new in CY2025) and runs the rules that test it after the group zeroing. This is the "SAS to R compiler". |
 | `apply_hcc.R` | `HCC2`, `ss()` | `assign_hcc()`, `apply_hierarchy()`, `assign_rxc()`, `widenfb()`, `HCCvars` | `assign_hcc()` joins a patient's diagnoses to condition categories and drops those that fail the age or sex conditions and splits. `apply_hierarchy()` drops the milder categories (Tables 4 and 11). `assign_rxc()` maps drug codes to drug categories. `widenfb()` pivots to one row per patient with one 0/1 column per category, guaranteeing every category column exists. |
 | `readClientData.R` | SQL Server database/tables named in `config.yaml`'s `database:` section (defaults to `ModelDevelopment`: `eligibility`, `claims_20210601_to_20220531`) | `D3` (patient × diagnosis), `DM2` (patient age, sex, months enrolled), `HCPCS` (patient × drug/procedure code) | Pulls one benefit year of claims and enrollment for the client, over the window in `config.yaml`'s `database.period`. |
 | `score_model.R` | Everything above | `STEP2` … `STEP8`, `Answer`; writes `RiskScoresFinal.csv` | Runs the pipeline: age/sex bands → HCC assignment → hierarchies → drug categories → wide table → combination flags → long table → join coefficients → sum per patient per metal tier. `STEP7` shows each patient's score broken down by variable. |
@@ -258,7 +258,8 @@ hierarchies, the age and sex filters, and the drug variables.
 
 | File | Status |
 |---|---|
-| `tests/` | `synthetic_data.R` stands in for `readClientData.R` with six made-up patients; `run_synthetic.R` runs the pipeline on them. |
+| `table3_reader.R` | Table 3 of the workbook | `read_icd10_crosswalk()` | Reads the ICD-10 crosswalk by matching column headers, not positions, because CMS changed the layout between years (13 columns in CY2022, 17 in CY2025). Stops with a message naming the missing column if a needed one is absent. |
+| `tests/` | `synthetic_data.R` stands in for `readClientData.R` with six made-up patients; `run_synthetic.R` runs the pipeline on them; `run_cy2025.R` and `config-cy2025.yaml` do the same against the CY2025 workbook (download it from CMS; it is not stored in the repo). |
 | `sample.dat` | A few lines copied from Tables 6 and 7, showing the SAS rule syntax. |
 | `ClaimsAS.RData` | Saved R workspace (about 5 MB unpacked), presumably sample claims or age/sex data; no script loads it. |
 
@@ -293,11 +294,13 @@ hierarchies, the age and sex filters, and the drug variables.
 
 These are what a reader would trip over when running the pipeline today:
 
-- **Validation status.** The pipeline has been run only against the CY2022
-  workbook, and only on a small hand-built synthetic data set
-  (`tests/run_synthetic.R`). Its scores have not been compared with CMS's
-  official software, and no other model year has been run, so the
-  "any model year" support in `config.yaml` is by design, not by test.
+- **Validation status.** The pipeline runs on the CY2022 and CY2025
+  workbooks, on a small hand-built synthetic data set
+  (`tests/run_synthetic.R` for CY2022; `tests/run_cy2025.R` for CY2025,
+  which also checks the HCC count and enrollment-duration variables CY2025
+  adds). CY2022 scores are unchanged by the CY2025 work. Neither year's
+  scores have been compared with CMS's official software, and no other
+  model year has been run.
 - **Database config is centralized but not re-verified.** `readClientData.R`
   now reads its server address, database/table/column names, and claims
   lookback window from `config.yaml` instead of having them hard-coded, but

@@ -15,6 +15,31 @@
 ##           score_model.R (the cost-sharing adjustment is not applied)
 ## (this replaces a hard-coded list of spreadsheet row numbers)
 
+## A count definition such as
+##   HCC_CNT = SUM(HHS_HCC*, G*) - HHS_HCC022
+## (new in the CY2025 workbook; Tables 6 and 7) is not an if/then rule.
+## It is compiled to its own step: sum every column whose name starts with
+## one of the listed prefixes, then subtract any named columns (a column
+## that is NA for a patient counts as 0). Rules that
+## test HCC_CNT (the SEVERE_HCC_COUNT variables) run after it.
+
+count_definition_code=function(model,formula) {
+  f=str_squish(str_remove(formula,';\\s*$'))
+  args=str_trim(str_split_1(str_match(f,'SUM\\(([^)]*)\\)')[,2],','))
+  prefixes=str_remove(args,'\\*$')
+  minus=str_trim(str_split_1(str_remove(f,'^[^)]*\\)'),'-'))
+  minus=minus[minus!='']
+  code=sprintf("X[,HCC_CNT:=rowSums(.SD,na.rm=TRUE),.SDcols=patterns('^(%s)')]",
+               paste(prefixes,collapse='|'))
+  for (v in minus)
+    code=paste0(code,sprintf(";if('%s' %%in%% names(X)) X[,HCC_CNT:=HCC_CNT-fcoalesce(as.numeric(%s),0)]",v,v))
+  data.table(Model=model,assignment=code)
+}
+
+count_rows=data.table(AllAges)[str_detect(str_squish(Formula),'^HCC_CNT *= *SUM')]
+count_defs=rbindlist(c(list(data.table(Model=character(),assignment=character())),
+                       Map(count_definition_code,count_rows$Model,count_rows$Formula)))
+
 AllAgesImportantOnly=data.table(AllAges)[str_detect(str_squish(Formula),'^if ') &
                                          !str_detect(Formula,'^if any of the') &
                                          !(Variable %like% '^ED_') &
@@ -57,12 +82,23 @@ parts=AllAgesImportantOnly[,.(part=str_squish(unlist(str_split(consequent,',')))
                            by=.(Model,Variable,rule_order,antecedent)][part!='']
 parts[,deferred:=str_detect(part,'^HHS_HCC\\w+ *= *0$')]
 AllAgesImportantOnly=parts[,.(consequent=paste(part,collapse=', ')),
-                           by=.(Model,Variable,antecedent,deferred,rule_order)][order(Model,deferred,rule_order)]
+                           by=.(Model,Variable,antecedent,deferred,rule_order)]
+
+## Run order within a model: (1) ordinary rules, (2) the deferred zeroing,
+## (3) HCC_CNT, which counts the HCCs and groups left after the zeroing,
+## (4) rules that test HCC_CNT.
+AllAgesImportantOnly[,stage:=fcase(str_detect(antecedent,'\\bHCC_CNT\\b'),4,
+                                   deferred,2,
+                                   default=1)]
 
 AllAgesImportantOnly[,assignment:=str_squish(paste('X[',antecedent,
                                         ',`:=`(',
                                              consequent,')]',
                                             sep=''))]
+
+## Put each model's HCC_CNT step between stages 2 and 4, then order.
+count_defs[,`:=`(stage=3,rule_order=0L)]
+AllAgesImportantOnly=rbind(AllAgesImportantOnly,count_defs,fill=TRUE)[order(Model,stage,rule_order)]
 
 ## One function per model. The Adult, Child and Infant tables group HCCs
 ## differently (a group rule sets its member HCCs to 0), so each patient
