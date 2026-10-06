@@ -58,6 +58,15 @@ print(DM2[, .(patients = .N, mean_age = round(mean(pat_age), 1), pct_female = ro
 cat(sprintf('\nPatients with a diagnosis: %d (%.0f%%);  with a pharmacy fill: %d (%.0f%%)\n',
             uniqueN(D3$pat_id), 100 * uniqueN(D3$pat_id) / N,
             uniqueN(pop$RX$pat_id), 100 * uniqueN(pop$RX$pat_id) / N))
+cat('\nPharmacy fills\n')
+RX = pop$RX
+check(!any(RX[is.na(RXC), NDC] %in% NDC_CODES$NDC),
+      'drugs outside the risk model are not in the NDC crosswalk')
+cat(sprintf('%d fills for %d patients (%.0f%% of patients); %.1f%% of fills map to a risk-model drug category\n',
+            nrow(RX), uniqueN(RX$pat_id), 100 * uniqueN(RX$pat_id) / N,
+            100 * mean(!is.na(RX$RXC))))
+print(RX[, .(patients = uniqueN(pat_id), fills = .N),
+         by = .(drug_class = ifelse(is.na(RXC), drug_class, 'risk-model drug'))][order(-patients)])
 cat('\nDrug categories (patients, after hierarchy)\n')
 print(exp[cat %like% '^RXC', .N, by = cat][order(cat)])
 cat('\nSilver risk score by model\n')

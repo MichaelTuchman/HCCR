@@ -21,7 +21,8 @@
 ##
 ## generate_synthetic(n, seed) returns a list:
 ##   DM2, D3, HCPCS, NDC       the scoring inputs
-##   RX                        pharmacy fills: pat_id, NDC, RXC, fill_date, days_supply
+##   RX                        pharmacy fills: pat_id, NDC, RXC (NA for drugs the
+##                             risk model ignores), drug_class, fill_date, days_supply
 ##   expected                  pat_id x HCC / RXC rows that should survive the
 ##                             hierarchies, computed here independently of
 ##                             apply_hcc.R
@@ -38,18 +39,54 @@ DRUG_GIVEN_DIAGNOSIS = data.table(
   prob   = c(0.90,    0.45,    0.20,    0.85,    0.60,    0.50,    0.60,    0.60,
              0.50,    0.50,    0.70,    0.50,    0.50,    0.30,    0.80))
 
-## Fills of one drug across the year: first fill on a random day, then a
-## refill every days_supply days, each one made with probability `adherence`
-## (a missed refill is just skipped, so gaps appear).
+## Fills of one drug across the year. A chronic drug is first filled on a
+## random day, then refilled every days_supply days, each refill made with
+## probability `adherence` (a missed refill is just skipped, so gaps
+## appear). An acute drug (an antibiotic course) is one short fill, now and
+## then two.
 
-fill_history = function(pat_id, ndc, rxc, year, adherence = 0.85) {
+fill_history = function(pat_id, ndc, rxc, year, drug_class = 'risk_model_rxc',
+                        adherence = 0.85, acute = FALSE) {
+  year_end = as.Date(sprintf('%d-12-31', year))
+  if (acute) {
+    first = as.Date(sprintf('%d-01-01', year)) + sample(0:350, 1)
+    made = c(first, if (runif(1) < 0.2) first + sample(14:60, 1))
+    made = made[made <= year_end]
+    return(data.table(pat_id = pat_id, NDC = ndc, RXC = rxc, drug_class = drug_class,
+                      fill_date = made, days_supply = sample(c(5L, 7L, 10L), 1)))
+  }
   days_supply = sample(c(30L, 90L), 1, prob = c(0.7, 0.3))
   first = as.Date(sprintf('%d-01-01', year)) + sample(0:300, 1)
-  due = seq(first, as.Date(sprintf('%d-12-31', year)), by = days_supply)
+  due = seq(first, year_end, by = days_supply)
   made = due[runif(length(due)) < adherence | seq_along(due) == 1]
-  data.table(pat_id = pat_id, NDC = ndc, RXC = rxc,
+  data.table(pat_id = pat_id, NDC = ndc, RXC = rxc, drug_class = drug_class,
              fill_date = made, days_supply = days_supply)
 }
+
+## Everyday drugs that are NOT in the risk model's drug categories, so the
+## scorer should ignore them. For each class: the chance an adult aged 50 is
+## on it (p50), how that chance changes per decade of age on the log-odds
+## scale (slope), the chance for someone under 21 (p_child), whether it is
+## taken continuously, and how much each drug is used within the class.
+## These are popularity guesses, not epidemiology.
+
+BACKGROUND_DRUGS = data.table(
+  drug_class = c('statin', 'blood_pressure', 'thyroid', 'acid_reducer', 'antidepressant',
+                 'metformin', 'asthma', 'nerve_pain', 'antibiotic', 'steroid'),
+  p50     = c(0.20, 0.25, 0.06, 0.10, 0.10, 0.06, 0.07, 0.03, 0.15, 0.04),
+  slope   = c(0.45, 0.50, 0.20, 0.20, 0.00, 0.40, -0.10, 0.20, -0.05, 0.00),
+  p_child = c(0.00, 0.00, 0.005, 0.01, 0.01, 0.00, 0.10, 0.00, 0.22, 0.03),
+  chronic = c(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, FALSE))
+
+BACKGROUND_DRUG_WEIGHT = c(
+  'atorvastatin calcium' = 0.45, 'rosuvastatin calcium' = 0.20, 'simvastatin' = 0.20,
+  'pravastatin sodium' = 0.10, 'lovastatin' = 0.05,
+  'lisinopril' = 0.30, 'losartan potassium' = 0.20, 'amlodipine besylate' = 0.25,
+  'metoprolol tartrate' = 0.10, 'metoprolol succinate' = 0.10, 'hydrochlorothiazide' = 0.05,
+  'pantoprazole sodium' = 0.50, 'omeprazole' = 0.50,
+  'sertraline hydrochloride' = 0.55, 'escitalopram oxalate' = 0.45,
+  'albuterol sulfate' = 0.60, 'montelukast sodium' = 0.40,
+  'amoxicillin' = 0.60, 'azithromycin' = 0.40)   # others: the only drug in their class
 
 generate_synthetic = function(n = 2000, seed = 1, year = hccr_model_year()) {
   set.seed(seed)
@@ -132,7 +169,32 @@ generate_synthetic = function(n = 2000, seed = 1, year = hccr_model_year()) {
     fill_history(want$pat_id[i], ndc, want$RXC[i], year)
   }))
   if (nrow(RX) == 0) RX = data.table(pat_id = character(), NDC = character(), RXC = character(),
-                                     fill_date = as.Date(character()), days_supply = integer())
+                                     drug_class = character(), fill_date = as.Date(character()), days_supply = integer())
+  ## --- everyday drugs the scorer should ignore ------------------------
+  bg_file = getOption('hccr.background_ndcs', 'tests/data/background_ndcs.csv')
+  bg = fread(bg_file, colClasses = 'character')
+  bg = bg[!ndc %in% NDC_CODES$NDC]               # never a risk-model drug
+  bg[, w := BACKGROUND_DRUG_WEIGHT[drug]]
+  bg[is.na(w), w := 1]
+  has_dx = pat_id %in% D3$pat_id
+  bg_fills = rbindlist(lapply(seq_len(nrow(BACKGROUND_DRUGS)), function(j) {
+    cls = BACKGROUND_DRUGS[j]
+    p = ifelse(pat_age < 21, cls$p_child,
+               plogis(qlogis(cls$p50) + cls$slope * (pat_age - 50) / 10))
+    p = pmin(0.95, p * ifelse(has_dx, 1.6, 1))   # people with diagnoses take more drugs
+    on = which(runif(n) < p)
+    if (length(on) == 0) return(NULL)
+    pool_cls = bg[drug_class == cls$drug_class]
+    drugs = unique(pool_cls[, .(drug, w)])
+    rbindlist(lapply(on, function(i) {
+      k = if (cls$drug_class == 'blood_pressure') sample(1:3, 1, prob = c(0.6, 0.3, 0.1)) else 1
+      chosen = drugs[sample(.N, min(k, .N), prob = w), drug]
+      rbindlist(lapply(chosen, function(d)
+        fill_history(pat_id[i], pool_cls[drug == d][sample(.N, 1), ndc], NA_character_, year,
+                     drug_class = cls$drug_class, adherence = 0.8, acute = !cls$chronic)))
+    }))
+  }))
+  RX = rbind(RX, bg_fills)
   NDC = unique(RX[, .(pat_id, NDC)])
   setkey(NDC, pat_id)
 
@@ -148,7 +210,7 @@ generate_synthetic = function(n = 2000, seed = 1, year = hccr_model_year()) {
   rxc_zero_map = split(RXCSetToZero$set_zero, RXCSetToZero$HCC)
 
   dx_cats = merge(unique(D3[, .(pat_id, ICD10)]), unique(HCC2[, .(ICD10, HCC)]), by = 'ICD10')[, .(pat_id, cat = HCC)]
-  rx_cats = rbind(unique(RX[, .(pat_id, cat = RXC)]),
+  rx_cats = rbind(unique(RX[!is.na(RXC), .(pat_id, cat = RXC)]),
                   merge(HCPCS, HCPCS_CODES, by = 'HCPCS')[, .(pat_id, cat = RXC)])
   survivors = function(cats, zmap) {
     cats = unique(cats)
