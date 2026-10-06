@@ -30,23 +30,18 @@ later be compared against CMS's Python software.
 
 ## Next up (in order)
 
-1. **Female infants are not scored.** Found by the broad test: the infant
-   age/sex variables are `AGE0_MALE` and `AGE1_MALE` only, and a patient with
-   no age/sex row drops out silently, so every female infant (age 0-1) gets
-   no score. Check CMS's documentation for how they should score, then fix
-   (this is the `AGE0_MALE`/`AGE1_MALE` hard-code in section 7).
-2. **Table 13 (CSR indicators) and the cost-sharing adjustment.** Read
+1. **Table 13 (CSR indicators) and the cost-sharing adjustment.** Read
    Table 13, apply the `CSR_ADJUSTED_SCORE_*` multipliers from Tables 6-8,
    and report the patient's own plan instead of all five metal tiers.
-3. **Readability refactor of `Model_Inputs.R`.** Split it into small named
+2. **Readability refactor of `Model_Inputs.R`.** Split it into small named
    functions with one job each, and keep the test output unchanged (the
    small test, `run_cy2025.R` and `run_broad.R` are the safety net).
-4. **Affiliated Cost Factors (ACFs).** New for CY2026: Tables 10c
+3. **Affiliated Cost Factors (ACFs).** New for CY2026: Tables 10c
    (ACF to NDC) and 10d (ACF to HCPCS). Needs the CY2026 workbook, which was
    not on the CMS page at the time of writing; locate it first. The CMS
    resources page that lists the workbooks is
    https://www.cms.gov/cciio/resources/regulations-and-guidance
-5. **Compare against CMS's Python software.** Locate the software (no
+4. **Compare against CMS's Python software.** Locate the software (no
    download link was found in the DIY instructions or the implementation
    memo), run it on the same synthetic patients, and compare the HCC/RXC
    assignment layer first. The broad population is the input to use.
@@ -128,10 +123,10 @@ database is available.
 
 ## 7. Scoring (`score_model.R`)
 
-- [ ] `AGE0_MALE`/`AGE1_MALE` are referenced by literal name rather than
-      read from `AgeSexBands`; female infants get no score as a result
-      (see "Next up" item 1).
-- [ ] Cost-sharing adjustment not applied (see "Next up" item 2).
+- [x] Female infants now score (maturity x severity only); Table 1 model
+      ages are read by `model_membership.R`. Infant behavior still needs a
+      comparison with CMS's software.
+- [ ] Cost-sharing adjustment not applied (see "Next up" item 1).
 - [ ] Log how many duplicate patients `dup_resolve` drops per run.
 
 ## 8. Reporting (`byPerson.R`, `slices.R`)

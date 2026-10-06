@@ -84,7 +84,8 @@ parts[,deferred:=str_detect(part,'^HHS_HCC\\w+ *= *0$')]
 AllAgesImportantOnly=parts[,.(consequent=paste(part,collapse=', ')),
                            by=.(Model,Variable,antecedent,deferred,rule_order)]
 
-## Run order within a model: (1) ordinary rules, (2) the deferred zeroing,
+## Run order within a model: (0) set every assigned variable to 0 (below),
+## (1) ordinary rules, (2) the deferred zeroing,
 ## (3) HCC_CNT, which counts the HCCs and groups left after the zeroing,
 ## (4) rules that test HCC_CNT.
 AllAgesImportantOnly[,stage:=fcase(str_detect(antecedent,'\\bHCC_CNT\\b'),4,
@@ -98,7 +99,20 @@ AllAgesImportantOnly[,assignment:=str_squish(paste('X[',antecedent,
 
 ## Put each model's HCC_CNT step between stages 2 and 4, then order.
 count_defs[,`:=`(stage=3,rule_order=0L)]
-AllAgesImportantOnly=rbind(AllAgesImportantOnly,count_defs,fill=TRUE)[order(Model,stage,rule_order)]
+
+## Start every variable a model's rules set at 0. The CMS software does the
+## same, and some rules test for a 0: the infant rule "if IHCC_SEVERITY5 = 0
+## and ... IHCC_SEVERITY2 = 0 then IHCC_SEVERITY1 = 1" has to fire for an
+## infant with no diagnoses, but a variable no rule has set yet is NA here,
+## not 0, and an NA never equals 0. A variable that already has a value
+## (an HCC flag, AGE0_MALE) keeps it; only NA becomes 0.
+assigned=AllAgesImportantOnly[,.(var=unique(str_match_all(consequent,'(?:^|[ ,])([A-Za-z]\\w*) *=(?!=)')[[1]][,2])),by=.(Model,rule_order)]
+init_defs=assigned[!is.na(var),.(var=list(unique(var))),by=Model][,.(Model,
+  stage=0,rule_order=-1L,
+  assignment=sprintf("for (v in %s) { if (!(v %%in%% names(X))) X[,(v):=0L] else X[is.na(get(v)),(v):=0L] }",
+                     sapply(var,function(v) paste0('c(',paste(sprintf("'%s'",v),collapse=','),')'))))]
+
+AllAgesImportantOnly=rbind(AllAgesImportantOnly,count_defs,init_defs,fill=TRUE)[order(Model,stage,rule_order)]
 
 ## One function per model. The Adult, Child and Infant tables group HCCs
 ## differently (a group rule sets its member HCCs to 0), so each patient

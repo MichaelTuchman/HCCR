@@ -39,16 +39,11 @@ exp = unique(pop$expected)
 check(nrow(fsetdiff(exp, got)) == 0, 'every expected category was assigned')
 check(nrow(fsetdiff(got, exp)) == 0, 'no unexpected categories were assigned')
 
-## Known gap (README, "Known gaps"): the infant age/sex variables in the
-## workbook are AGE0_MALE and AGE1_MALE only, and the pipeline scores a
-## patient only if they have an age/sex row, so female infants (age 0-1)
-## are dropped with no score and no warning. Anything else missing is new.
+## Every patient must be scored. Female infants once dropped out silently
+## because they have no age/sex row; they now score from the infant
+## maturity x severity variable alone.
 unscored = setdiff(DM2$pat_id, Answer$pat_id)
-female_infants = DM2[pat_age <= 1 & pat_gender == 'F', pat_id]
-check(length(setdiff(unscored, female_infants)) == 0,
-      'every patient got a score, except female infants (known gap)')
-cat(sprintf('NOTE  %d of %d female infants were not scored (known gap)\n',
-            length(unscored), length(female_infants)))
+check(length(unscored) == 0, 'every patient got a score (including female infants)')
 check(!anyNA(Answer$Silver) && all(is.finite(Answer$Silver)), 'all Silver scores are finite')
 check(all(Answer$Silver > 0), 'all Silver scores are positive')
 

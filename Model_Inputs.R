@@ -15,6 +15,7 @@ require(lubridate)
 require(yaml)
 
 source('config.R') # loads CONFIG + hccr_*() helpers from config.yaml
+source('model_membership.R') # which model (Adult/Child/Infant) an age belongs to, from Table 1
 source('table3_reader.R') # finds Table 3's columns by header, so layout changes between years don't break it
 
 # date  utility and helper functions
@@ -30,7 +31,11 @@ checkNA=function(DT) DT[,lapply(.SD,count_na)]
 ## and point config.yaml at it - see README "Updating to a new model year".
 
 MODEL_YEAR = hccr_model_year()
+
 fn = hccr_workbook_path()
+
+## Table 1: which model each age belongs to (see model_membership.R)
+ModelMembership = read_model_membership(fn, hccr_sheet('model_membership'))
 
 ## hcc_group : Data structures to write code for computing the 
 ## grouping variables

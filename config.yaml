@@ -26,7 +26,7 @@ model:
     # "Table <n>" since at least CY2018; listed here (rather than
     # hard-coded) in case a future year renames or renumbers one.
     sheets:
-      model_membership: "Table 1"        # not read yet (model assignment is hard-coded)
+      model_membership: "Table 1"        # age ranges for the Adult, Child and Infant models
       cpt_hcpcs_included_list: "Table 2" # not read yet
       icd10_crosswalk: "Table 3"
       hierarchies: "Table 4"

@@ -97,6 +97,32 @@ STEP2A=merge(STEP2A,AgeSexBands[,.(AgeBAND=Variable,Model)],by='AgeBAND')
 f=widenfb(c(HCC2$HCC,RXCvars)) # all these function builders must take spreadsheet tables as arguments
 STEP3=f(STEP2A)
 
+## Every patient goes through the rules, not only those with a diagnosis
+## or drug category. The rules score a patient with nothing to report too:
+## the infant model gives every infant a maturity x severity variable
+## (a healthy age-1 infant gets AGE1_X_SEVERITY1), and Table 1 says so. A
+## female infant has no age/sex band at all (Table 5 has male infant bands
+## only), so she would otherwise vanish from the scoring. Patients missing
+## from STEP3 are added with every category set to 0.
+
+patient_base = unique(DM2[,.(pat_id,pat_age,pat_gender)])
+patient_base[,Model:=model_for_age(pat_age)]
+check_models = patient_base[is.na(Model)]
+if (nrow(check_models)>0)
+  warning(nrow(check_models),' patient(s) have an age outside every model in Table 1 and will not be scored: ',
+          paste(head(check_models$pat_id,5),collapse=', '))
+patient_base=merge(patient_base[!is.na(Model)],
+                   unique(Scored_DM[,.(pat_id,AgeBAND=Variable)]),by='pat_id',all.x=TRUE)
+
+## a patient's age/sex band must belong to their own model
+band_model = merge(patient_base[!is.na(AgeBAND)],AgeSexBands[,.(AgeBAND=Variable,band_model=Model)],by='AgeBAND')
+stopifnot(all(band_model$Model==band_model$band_model))
+
+no_categories = patient_base[!pat_id %in% STEP3$pat_id]
+STEP3 = rbind(STEP3,no_categories,fill=TRUE)
+category_cols = setdiff(names(STEP3),c('pat_id','pat_age','pat_gender','AgeBAND','Model'))
+for (v in category_cols) set(STEP3,which(is.na(STEP3[[v]])),v,0L)
+
 ## note that AGE0_MALE and AGE1_MALE act like both rows and columns
 ## in this program.  This will become important later. It occurs
 ## to me while I'm writing this that we need age variables in 
@@ -181,7 +207,11 @@ STEP5[,variable:=NULL]
 outvars=c('pat_id','Model','pat_gender','pat_age','Variable','value')
 
 
-STEP6 = bind_rows(STEP5[,..outvars],Scored_DM[!is.na(pat_id),..outvars]) %>% distinct
+## Where the rules set a variable that the age/sex step also set (an age 0
+## male infant with no newborn diagnosis is moved from AGE0_MALE to AGE1_MALE),
+## the rules' value is the one that counts.
+Scored_DM_kept = Scored_DM[!is.na(pat_id)][!STEP5[,.(pat_id,Model,Variable)],on=.(pat_id,Model,Variable)]
+STEP6 = bind_rows(STEP5[,..outvars],Scored_DM_kept[,..outvars]) %>% distinct
 setkey(STEP6,pat_id,Model,Variable)
 
 # step7 is useful for breaking down how a risk score was arrived at

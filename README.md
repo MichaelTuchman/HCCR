@@ -303,14 +303,11 @@ These are what a reader would trip over when running the pipeline today:
   themselves. CY2022 scores are unchanged by the CY2025 work. Neither
   year's scores have been compared with CMS's official software, and no
   other model year has been run.
-- **Female infants are not scored.** The infant age/sex variables in the
-  workbook are `AGE0_MALE` and `AGE1_MALE` only, and a patient with no
-  age/sex row drops out of the scoring silently, so a female patient aged 0
-  or 1 gets no score at all. Found by `tests/run_broad.R`, which reports the
-  count and fails if anyone else goes unscored. Related to the
-  `AGE0_MALE`/`AGE1_MALE` hard-code below; whether those patients should
-  score from the severity variables alone needs checking against CMS's
-  documentation.
+- **Infant scoring is inferred from the workbook, not checked against CMS.**
+  Female infants have no age/sex factor in Table 5 and score from the infant
+  maturity-by-severity variable alone; male infants with no newborn HCC are
+  moved to `AGE1_MALE` as Table 1/8 describe. Both follow the workbook's
+  rules as read here and have not been compared with CMS's software.
 - **Database config is centralized but not re-verified.** `readClientData.R`
   now reads its server address, database/table/column names, and claims
   lookback window from `config.yaml` instead of having them hard-coded, but
