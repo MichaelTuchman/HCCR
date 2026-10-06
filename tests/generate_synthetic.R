@@ -104,6 +104,9 @@ generate_synthetic = function(n = 2000, seed = 1, year = hccr_model_year()) {
                    pat_age = as.numeric(pat_age),
                    ENROLDURATION = ifelse(runif(n) < 0.8, 12L, sample(1:11, n, TRUE)))
   DM2[, ENROLDURATION := as.numeric(ENROLDURATION)]
+  ## Table 13 CSR indicator: most people are unadjusted (1), the rest spread
+  ## over indicators 2-11. Ignored by years whose workbook has no Table 13.
+  DM2[, csr_indicator := sample(1:11, n, TRUE, prob = c(0.7, rep(0.03, 10)))]
 
   ## --- diagnoses ------------------------------------------------------
   pool = unique(HCC2[is.na(age.cond) & is.na(sex.cond) & is.na(age.split) & is.na(sex.split),

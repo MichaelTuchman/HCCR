@@ -128,10 +128,10 @@ manual step:
    table reads back empty or misaligned, this is the first place to
    look.
 4. Watch for a table CMS has added for that year. CY2025, for example,
-   added **Table 13 (CSR Indicators)**; HCCR does not read it (cost-
-   sharing adjustment is a known gap below regardless of year). A new
-   model year may add a similarly new table that's worth a look even if
-   HCCR doesn't act on it yet.
+   added **Table 13 (CSR Indicators)**; HCCR reads it when
+   `csr_indicators` is listed under `sheets:` in the config (see `csr.R`).
+   A new model year may add a similarly new table that needs the same
+   treatment, or at least a look.
 5. Note the model *version* (CMS's HCC classification version, e.g.
    V05/V07/V08) printed in the DIY instructions for that year. HCCR
    doesn't need to know the version number itself - it just reads
@@ -258,8 +258,9 @@ hierarchies, the age and sex filters, and the drug variables.
 
 | File | Status |
 |---|---|
+| `csr.R` | Table 13 | `read_csr_table()`, `csr_by_indicator()`, `apply_csr()` | Cost-sharing adjustment (CY2025+): reads the CSR indicator -> metal tier and factor mapping and adds `CSR_INDICATOR` and `CSR_ADJUSTED_<tier>` columns to the output. |
 | `table3_reader.R` | Table 3 of the workbook | `read_icd10_crosswalk()` | Reads the ICD-10 crosswalk by matching column headers, not positions, because CMS changed the layout between years (13 columns in CY2022, 17 in CY2025). Stops with a message naming the missing column if a needed one is absent. |
-| `tests/` | `synthetic_data.R` stands in for `readClientData.R` with six made-up patients; `run_synthetic.R` runs the pipeline on them; `run_cy2025.R` and `config-cy2025.yaml` do the same against the CY2025 workbook (download it from CMS; it is not stored in the repo). `generate_synthetic.R` builds a larger made-up population (diagnoses sampled from Table 3; pharmacy fill histories sampled from Table 10a, plus everyday drugs the risk model ignores, such as statins and blood pressure drugs, using real NDC codes in `tests/data/background_ndcs.csv`, built from the FDA NDC Directory by `tests/data/build_background_ndcs.py`) and `run_broad.R` scores it and checks the assigned categories against an independently computed expectation: `Rscript tests/run_broad.R [patients] [seed]`. |
+| `tests/` | `synthetic_data.R` stands in for `readClientData.R` with six made-up patients; `run_synthetic.R` runs the pipeline on them; `run_cy2025.R` and `config-cy2025.yaml` do the same against the CY2025 workbook (download it from CMS; it is not stored in the repo). `generate_synthetic.R` builds a larger made-up population (diagnoses sampled from Table 3; pharmacy fill histories sampled from Table 10a, plus everyday drugs the risk model ignores, such as statins and blood pressure drugs, using real NDC codes in `tests/data/background_ndcs.csv`, built from the FDA NDC Directory by `tests/data/build_background_ndcs.py`) and `run_broad.R` scores it and checks the assigned categories against an independently computed expectation: `Rscript tests/run_broad.R [patients] [seed]`. `run_csr.R` (CY2025) checks the cost-sharing adjustment against the multipliers in Tables 6-8. |
 | `sample.dat` | A few lines copied from Tables 6 and 7, showing the SAS rule syntax. |
 | `ClaimsAS.RData` | Saved R workspace (about 5 MB unpacked), presumably sample claims or age/sex data; no script loads it. |
 
@@ -283,8 +284,7 @@ hierarchies, the age and sex filters, and the drug variables.
   claim that the two agree for a given year needs to be checked with the
   test harness below.
 - **What was deliberately left undone.** Reading Tables 10c/10d (Affiliated
-  Cost Factors) and 13 (CSR indicators), applying the cost-sharing
-  adjustment, pulling pharmacy claims, and verifying `readClientData.R`
+  Cost Factors), pulling pharmacy claims, and verifying `readClientData.R`
   against a real client database. See "Known gaps".
 - **Still useful for.** Learning how the model works, demonstrating the
   workbook-to-code approach, and cross-checking CMS's software on shared
@@ -322,9 +322,16 @@ These are what a reader would trip over when running the pipeline today:
 - **One age for everything.** The workbook tests diagnosis conditions on age at
   diagnosis and age splits on age at year end; the client data has a single
   `pat_age`, which is used for both.
-- **Cost-sharing adjustment.** The `CSR_ADJUSTED_SCORE_*` multipliers in
-  Tables 6 to 8 are not applied, and `Answer` reports all five metal tiers
-  rather than picking the patient's own plan.
+- **Cost-sharing adjustment is CY2025+ only and uses the patient's indicator
+  as given.** With Table 13 enabled in the config, the output adds
+  `CSR_INDICATOR` and `CSR_ADJUSTED_<tier>` columns (the indicator's tier
+  times its factor, the other tiers unchanged), as Tables 6 to 8 describe.
+  It does not map a plan's HIOS variant to an indicator (Table 13 needs the
+  metal level too), so the client data must supply `csr_indicator`;
+  patients without one are treated as indicator 1 (no adjustment), and the
+  output still reports all five tiers rather than picking a plan. CY2022's
+  workbook has no Table 13, so nothing is adjusted there. Not compared with
+  CMS's software.
 - **AGE0_MALE / AGE1_MALE hard-code in `score_model.R`.** Flagged in that
   file's own comments: these two age/sex flags are referenced by literal
   name rather than read from `AgeSexBands`, so a model that scored

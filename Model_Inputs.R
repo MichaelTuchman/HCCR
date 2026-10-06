@@ -16,6 +16,7 @@ require(yaml)
 
 source('config.R') # loads CONFIG + hccr_*() helpers from config.yaml
 source('model_membership.R') # which model (Adult/Child/Infant) an age belongs to, from Table 1
+source('csr.R') # Table 13 CSR indicators and the cost-sharing adjustment
 source('table3_reader.R') # finds Table 3's columns by header, so layout changes between years don't break it
 
 # date  utility and helper functions
@@ -278,3 +279,12 @@ RXCSetToZero=RXCSetToZero[,.(set_zero=str_trim(unlist(str_split(SetZero,',')))),
 RXCSetToZero=RXCSetToZero[,.(HCC=rxc_name(RXC),set_zero=rxc_name(set_zero))]
 
 RXCvars=rxc_name(1:10)
+
+## Table 13: CSR indicator -> metal tier and factor. Only years whose
+## workbook has the table (CY2025 on) list it in config.yaml; without it no
+## cost-sharing adjustment is applied.
+CSRByIndicator = NULL
+if (!is.null(CONFIG$model$workbook$sheets$csr_indicators)) {
+  CSRTable = read_csr_table(fn, hccr_sheet('csr_indicators'))
+  CSRByIndicator = csr_by_indicator(CSRTable)
+}

@@ -237,6 +237,11 @@ dup_resolve=STEP8[dups][,head(.SD,1),by=pat_id] # get itms in the original data 
 STEP8=STEP8[!dups] # remove dups
 
 Answer=bind_rows(STEP8,dup_resolve %>% select(-N)) # put them back bu tonly 1
+
+## Cost-sharing adjustment (CY2025 on). Patients may carry a csr_indicator
+## column (Table 13); without one everyone is indicator 1, i.e. unadjusted.
+if (!is.null(CSRByIndicator)) Answer = apply_csr(Answer, DM2, CSRByIndicator)
+
 write_csv(Answer,hccr_output_csv()) # path from config.yaml output.risk_scores_csv
 
 cleanup=function(){

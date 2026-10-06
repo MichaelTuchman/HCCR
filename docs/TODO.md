@@ -30,18 +30,15 @@ later be compared against CMS's Python software.
 
 ## Next up (in order)
 
-1. **Table 13 (CSR indicators) and the cost-sharing adjustment.** Read
-   Table 13, apply the `CSR_ADJUSTED_SCORE_*` multipliers from Tables 6-8,
-   and report the patient's own plan instead of all five metal tiers.
-2. **Readability refactor of `Model_Inputs.R`.** Split it into small named
+1. **Readability refactor of `Model_Inputs.R`.** Split it into small named
    functions with one job each, and keep the test output unchanged (the
    small test, `run_cy2025.R` and `run_broad.R` are the safety net).
-3. **Affiliated Cost Factors (ACFs).** New for CY2026: Tables 10c
+2. **Affiliated Cost Factors (ACFs).** New for CY2026: Tables 10c
    (ACF to NDC) and 10d (ACF to HCPCS). Needs the CY2026 workbook, which was
    not on the CMS page at the time of writing; locate it first. The CMS
    resources page that lists the workbooks is
    https://www.cms.gov/cciio/resources/regulations-and-guidance
-4. **Compare against CMS's Python software.** Locate the software (no
+3. **Compare against CMS's Python software.** Locate the software (no
    download link was found in the DIY instructions or the implementation
    memo), run it on the same synthetic patients, and compare the HCC/RXC
    assignment layer first. The broad population is the input to use.
@@ -64,8 +61,8 @@ later be compared against CMS's Python software.
 ## 1. Workbook ingestion (`Model_Inputs.R`, `config.yaml`)
 
 - [x] Second benefit year (CY2025) runs end to end.
-- [ ] Decide how to handle a year that adds a table (Table 13 is new for
-      CY2025; 10c and 10d for CY2026). Table 3's layout change is handled
+- [ ] Decide how to handle a year that adds a table (Table 13 is handled by
+      `csr.R`; 10c and 10d are new for CY2026). Table 3's layout change is handled
       by header matching; other tables still use fixed positions.
 - [ ] Tables 1, 2 and 12 are not read; confirm that skipping them is
       intentional.
@@ -126,7 +123,10 @@ database is available.
 - [x] Female infants now score (maturity x severity only); Table 1 model
       ages are read by `model_membership.R`. Infant behavior still needs a
       comparison with CMS's software.
-- [ ] Cost-sharing adjustment not applied (see "Next up" item 1).
+- [x] Cost-sharing adjustment applied for CY2025+ (`csr.R`).
+- [ ] Map a plan's HIOS variant and metal level to a CSR indicator (Table 13
+      has the lookup); today the client supplies `csr_indicator`.
+- [ ] Pick the patient's own plan tier instead of reporting all five.
 - [ ] Log how many duplicate patients `dup_resolve` drops per run.
 
 ## 8. Reporting (`byPerson.R`, `slices.R`)
@@ -139,6 +139,8 @@ database is available.
 - [x] `Rscript tests/run_synthetic.R` passes on CY2022 and matches the
       pre-refactor output (R 4.3.3).
 - [x] `Rscript tests/run_cy2025.R`: CY2025 workbook, plus checks of `HCC_CNT`
+- [x] `Rscript tests/run_csr.R`: Table 13 mapping vs Tables 6-8, and adjusted
+      scores = score x factor on a generated population (CY2025).
       and `HCC_ED`. Needs the CY2025 workbook downloaded (not in the repo).
 - [x] `Rscript tests/run_broad.R [patients] [seed]`: generated population;
       20,000 patients took about 70 seconds.

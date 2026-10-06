@@ -33,7 +33,7 @@ model:
       rxc_hcpcs_crosswalk: "Table 10b"
       rxc_hierarchies: "Table 11"
       exclusions: "Table 12"             # not read yet
-      # csr_indicators: "Table 13"       # new for CY2025; not read yet - see README known gaps
+      csr_indicators: "Table 13"         # new for CY2025
 
     # Number of header/title rows to skip with readxl::read_excel(skip = ...)
     # before each table's real column headers start. These have held
