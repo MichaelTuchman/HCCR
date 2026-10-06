@@ -139,9 +139,9 @@ database is available.
 - [x] `Rscript tests/run_synthetic.R` passes on CY2022 and matches the
       pre-refactor output (R 4.3.3).
 - [x] `Rscript tests/run_cy2025.R`: CY2025 workbook, plus checks of `HCC_CNT`
+      and `HCC_ED`. Needs the CY2025 workbook downloaded (not in the repo).
 - [x] `Rscript tests/run_csr.R`: Table 13 mapping vs Tables 6-8, and adjusted
       scores = score x factor on a generated population (CY2025).
-      and `HCC_ED`. Needs the CY2025 workbook downloaded (not in the repo).
 - [x] `Rscript tests/run_broad.R [patients] [seed]`: generated population;
       20,000 patients took about 70 seconds.
 - [x] `RiskScoresFinal.csv` and the downloaded CY2025 workbook are in
