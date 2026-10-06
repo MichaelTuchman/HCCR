@@ -30,15 +30,12 @@ later be compared against CMS's Python software.
 
 ## Next up (in order)
 
-1. **Readability refactor of `Model_Inputs.R`.** Split it into small named
-   functions with one job each, and keep the test output unchanged (the
-   small test, `run_cy2025.R` and `run_broad.R` are the safety net).
-2. **Affiliated Cost Factors (ACFs).** New for CY2026: Tables 10c
+1. **Affiliated Cost Factors (ACFs).** New for CY2026: Tables 10c
    (ACF to NDC) and 10d (ACF to HCPCS). Needs the CY2026 workbook, which was
    not on the CMS page at the time of writing; locate it first. The CMS
    resources page that lists the workbooks is
    https://www.cms.gov/cciio/resources/regulations-and-guidance
-3. **Compare against CMS's Python software.** Locate the software (no
+2. **Compare against CMS's Python software.** Locate the software (no
    download link was found in the DIY instructions or the implementation
    memo), run it on the same synthetic patients, and compare the HCC/RXC
    assignment layer first. The broad population is the input to use.
@@ -58,7 +55,11 @@ later be compared against CMS's Python software.
   age at diagnosis), NDC and HCPCS. Our pipeline has the same four inputs
   except the CSR indicator and a separate age at diagnosis.
 
-## 1. Workbook ingestion (`Model_Inputs.R`, `config.yaml`)
+## 1. Workbook ingestion (`Model_Inputs.R`, `workbook_readers.R`, `config.yaml`)
+
+- [x] `Model_Inputs.R` split into one reader function per table
+      (`workbook_readers.R`); output unchanged (identical score files on
+      every test, both years).
 
 - [x] Second benefit year (CY2025) runs end to end.
 - [ ] Decide how to handle a year that adds a table (Table 13 is handled by
