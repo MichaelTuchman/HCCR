@@ -13,6 +13,8 @@
 > it is as an independent cross-check: score the same patients here and in
 > CMS's software and compare. See [Project status](#project-status).
 
+**This is purely archival at this stage.  There is no incentive to update it and re-run it anymore.  It's just 
+here so I can remember how I did things.**
 ## What problem this solves
 
 Health insurers and the organizations that share financial risk with them
